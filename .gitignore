@@ -1,0 +1,15 @@
+# Binaries
+/sluice
+/dist/
+
+# Test / coverage artifacts
+*.out
+*.test
+
+# Editor / OS
+.DS_Store
+/.agentenv
+/docs/plans
+/docs/*spec.md
+/docs/sluice-spec.md
+/baton.json

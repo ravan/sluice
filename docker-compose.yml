@@ -1,0 +1,34 @@
+# The Varve image is local until ghcr.io/ravan/varve is published: build it with
+# `just varve-image` from a sibling varve checkout. Once the image is published,
+# set VARVE_IMAGE=ghcr.io/ravan/varve:<tag> to switch over — nothing else changes.
+# There is deliberately no `build:` stanza, so this file stays valid without a
+# varve checkout present.
+services:
+  varve:
+    image: ${VARVE_IMAGE:-sluice/varve:local}
+    command: ["--config", "/etc/varve/varve.toml"]
+    volumes:
+      - ./deploy/varve.toml:/etc/varve/varve.toml:ro
+    ports:
+      - "${VARVE_PORT:-8080}:8080"
+
+  # Receiver back-ends for the S5 demo (`just receivers`). They sit behind the
+  # `receivers` profile so `docker-compose up -d` (no profile) still starts only
+  # varve. registry:3 serves the OCI referrers API over plain HTTP; MinIO is an
+  # S3-compatible object store. Host port 5001 avoids the macOS AirPlay listener
+  # on 5000.
+  registry:
+    image: registry:3
+    profiles: ["receivers"]
+    ports:
+      - "${REGISTRY_PORT:-5001}:5000"
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data"]
+    profiles: ["receivers"]
+    environment:
+      MINIO_ROOT_USER: "${MINIO_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_PASS:-minioadmin}"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"

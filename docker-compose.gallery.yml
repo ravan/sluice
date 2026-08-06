@@ -1,0 +1,44 @@
+# Garage/S3-backed durable Varve for the S6 full-dress gallery (`just gallery`,
+# scripts/benchmark.sh, scripts/crash-replay.sh). SEPARATE from docker-compose.yml
+# so the S0-S5 demos are untouched (§6 inv. 10). The varve image is still the
+# locally-built sluice/varve:local (run `just varve-image` first); only the
+# garage-init image is built here. Tokens/keys are TEST/DEMO-ONLY (deploy/*).
+x-garage-image: &garage_image dxflrs/garage:v1.0.1
+services:
+  garage:
+    image: *garage_image
+    volumes:
+      - ./deploy/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    restart: "no"
+  garage-init:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.garage-init
+      args:
+        GARAGE_IMAGE: *garage_image
+    image: sluice-garage-init:local
+    volumes:
+      - ./deploy/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - shared:/shared
+    depends_on:
+      garage:
+        condition: service_started
+    restart: "no"
+  writer:
+    image: ${VARVE_IMAGE:-sluice/varve:local}
+    command: ["--config", "/etc/varve/varve.toml"]
+    volumes:
+      - ./deploy/varve-writer.toml:/etc/varve/varve.toml:ro
+    ports:
+      - "${VARVE_PORT:-8080}:8080"
+    depends_on:
+      garage-init:
+        condition: service_completed_successfully
+    restart: "no"
+volumes:
+  garage-meta:
+  garage-data:
+  shared:

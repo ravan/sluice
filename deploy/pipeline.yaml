@@ -1,0 +1,32 @@
+# sluice daemon example pipeline configuration.
+receivers:
+  files:
+    path: ./inbox
+    poll: 5s
+  # Additional receiver kinds (uncomment and configure as needed):
+  # oci:
+  #   refs: ["ghcr.io/example/image:tag"]  # image refs, or registry hosts when registry: true
+  #   registry: false                      # true ⇒ collect whole registries
+  #   insecure: false                      # plain-HTTP / skip-TLS, for local registries
+  #   poll: 30s                            # omit for one-shot
+  # s3:
+  #   bucket: my-sboms
+  #   url: "http://minio:9000"             # custom endpoint; omit for AWS SDK defaults
+  #   region: us-east-1
+  #   path: sboms/                         # folder prefix (list mode only)
+  #   queues: my-queue                     # required when poll is set (SQS)
+  #   poll: 15s                            # omit for one-shot bucket-list mode
+  # gcs:
+  #   bucket: my-sboms                     # needs GCP Application Default Credentials
+  #   poll: 1m                             # omit for one-shot
+processors:
+  valid_time:
+    floor: "2000-01-01T00:00:00Z"
+    future_skew: 5m
+  # enrich and expand are off by default.
+  enrich: {vulns: false, licenses: false, eol: false, deps_dev: false}
+  expand: {deps_dev: false, max_docs: 500}
+sink:
+  varve:
+    addr: "http://127.0.0.1:8080"
+    token_env: VARVE_TOKEN

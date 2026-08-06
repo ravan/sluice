@@ -1,0 +1,27 @@
+# Demo-only single-node Varve config for the sluice S0 walking skeleton.
+#
+# The token below is DEMO-ONLY fixed material, not a production secret. The
+# in-memory log and storage backends are deliberate: S0 demonstrates idempotent
+# re-ingest within one stack lifetime, not durability — the graph is gone when
+# the container stops. This exact shape was probed working during planning.
+[node]
+roles = ["writer", "query", "compactor"]
+
+[log]
+backend = "memory"
+
+[storage]
+backend = "memory"
+
+[server]
+backend = "http"
+
+[server.http]
+listen = "0.0.0.0:8080"
+advertised_address = "http://127.0.0.1:8080"
+
+[auth]
+backend = "static"
+
+[auth.static]
+tokens = [{ subject = "sluice-demo", token = "sluice-demo-token" }]
