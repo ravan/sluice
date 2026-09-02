@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.1 — 2026-09-03
+
+### Fixed
+
+- `assemble`: `HasSlsa` and `CertifyScorecard` evidence ids were not stable
+  across runs. GUAC delivers SLSA predicates and Scorecard checks in map
+  order, and the id hashed them in that order. `encodeKV` now sorts the
+  pairs, so a replay of the same attestation makes the same node. Ids of
+  existing `HasSlsa` and `CertifyScorecard` nodes change once.
+
 ## v0.1.0 — 2026-09-02
 
 First tagged release. Sluice is now importable as a library. `v0.x` means the

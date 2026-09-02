@@ -49,3 +49,16 @@ func TestSortedIDs(t *testing.T) {
 		t.Errorf("sortedIDs mutated input: %v", in)
 	}
 }
+
+// TestEncodeKVIsOrderIndependent pins that evidence ids built from GUAC
+// map-ordered pairs do not change between runs.
+func TestEncodeKVIsOrderIndependent(t *testing.T) {
+	a := encodeKV([]KVPair{{"b", "2"}, {"a", "1"}, {"c", "3"}})
+	b := encodeKV([]KVPair{{"c", "3"}, {"a", "1"}, {"b", "2"}})
+	if a != b {
+		t.Fatalf("encodeKV depends on input order:\n%q\n%q", a, b)
+	}
+	if a != "a\x1f1\nb\x1f2\nc\x1f3" {
+		t.Fatalf("unexpected canonical form %q", a)
+	}
+}

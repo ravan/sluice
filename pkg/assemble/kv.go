@@ -19,13 +19,16 @@ func hashParts(parts ...string) string {
 // KVPair packs one small ordered (key,value) for encodeKV.
 type KVPair struct{ Key, Value string }
 
-// encodeKV packs pairs as "k\x1fv" joined by '\n' (order preserved). Empty
-// slice → "".
+// encodeKV packs pairs as "k\x1fv" joined by '\n', sorted by key then
+// value. GUAC hands SLSA predicates and Scorecard checks over in map order,
+// so the input order is not stable; the id derived from this string must
+// be. Empty slice → "".
 func encodeKV(pairs []KVPair) string {
 	parts := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		parts = append(parts, p.Key+"\x1f"+p.Value)
 	}
+	sort.Strings(parts)
 	return strings.Join(parts, "\n")
 }
 
