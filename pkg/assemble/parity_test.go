@@ -55,8 +55,8 @@ func TestCorpusParity(t *testing.T) {
 
 	var all []assembler.IngestPredicates
 	out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: corpusDir}},
-		func(_ context.Context, _ string, preds []assembler.IngestPredicates, _ []string) error {
-			all = append(all, preds...)
+		func(_ context.Context, p guacseam.Parsed) error {
+			all = append(all, p.Preds...)
 			return nil
 		})
 	if err != nil {

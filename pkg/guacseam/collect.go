@@ -31,10 +31,40 @@ type Outcome struct {
 	Failed    []FailedDocument
 }
 
-// PredicateFunc consumes one document's parsed predicates and the deduped purls the
-// parser found for it (fed to expansion). An error it returns aborts the whole pass —
-// a sink failure is not a document failure (§2.6).
-type PredicateFunc func(ctx context.Context, source string, preds []assembler.IngestPredicates, purls []string) error
+// Origin says where a collected document came from.
+type Origin int
+
+const (
+	OriginReceiver  Origin = iota // came from a configured receiver
+	OriginExpansion               // synthesized by deps.dev expansion
+)
+
+// String renders the origin for logs.
+func (o Origin) String() string {
+	switch o {
+	case OriginReceiver:
+		return "receiver"
+	case OriginExpansion:
+		return "expansion"
+	default:
+		return fmt.Sprintf("Origin(%d)", int(o))
+	}
+}
+
+// Parsed is one collected and parsed document: the raw GUAC document (bytes in
+// Doc.Blob, plus type, format and provenance), the predicates the parser made
+// from it, and the deduped purls it mentions (fed to expansion).
+type Parsed struct {
+	Source string // Doc.SourceInformation.Source
+	Origin Origin
+	Doc    *processor.Document
+	Preds  []assembler.IngestPredicates
+	Purls  []string
+}
+
+// DocumentFunc consumes one parsed document. An error it returns aborts the
+// whole pass — a sink failure is not a document failure (§2.6).
+type DocumentFunc func(ctx context.Context, p Parsed) error
 
 // ScanFlags gates the four ParseDocumentTree enrichment scanners.
 type ScanFlags struct {
@@ -101,7 +131,7 @@ func purlsFrom(ids []*common.IdentifierStrings) []string {
 // Collect is the ONLY place GUAC behaviour is invoked (§3): it builds every
 // present receiver's collector, registers the whole set, runs collector.Collect
 // once, and deregisters on return.
-func Collect(ctx context.Context, src Sources, fn PredicateFunc) (Outcome, error) {
+func Collect(ctx context.Context, src Sources, fn DocumentFunc) (Outcome, error) {
 	cols, err := buildCollectors(ctx, src)
 	if err != nil {
 		return Outcome{}, err
@@ -174,6 +204,7 @@ type parseJob struct {
 type parseResult struct {
 	seq    int
 	source string
+	doc    *processor.Document
 	preds  []assembler.IngestPredicates
 	purls  []string
 	err    error
@@ -184,7 +215,7 @@ type parseResult struct {
 // concurrently but their results are replayed to fn and onSkip strictly in
 // document arrival order by a single consumer, so fn stays single-threaded and a
 // pass's output does not depend on which worker finished first.
-func collectWith(ctx context.Context, cols []collector.Collector, scan ScanFlags, onSkip func(FailedDocument), fn PredicateFunc) (Outcome, error) {
+func collectWith(ctx context.Context, cols []collector.Collector, scan ScanFlags, onSkip func(FailedDocument), fn DocumentFunc) (Outcome, error) {
 	var registered []collector.Collector
 	defer func() {
 		for _, c := range registered {
@@ -213,7 +244,7 @@ func collectWith(ctx context.Context, cols []collector.Collector, scan ScanFlags
 			defer wg.Done()
 			for j := range jobs {
 				preds, purls, err := processAndParse(ctx, j.doc, scan)
-				results <- parseResult{seq: j.seq, source: j.doc.SourceInformation.Source, preds: preds, purls: purls, err: err}
+				results <- parseResult{seq: j.seq, source: j.doc.SourceInformation.Source, doc: j.doc, preds: preds, purls: purls, err: err}
 			}
 		}()
 	}
@@ -246,7 +277,7 @@ func collectWith(ctx context.Context, cols []collector.Collector, scan ScanFlags
 					}
 					continue
 				}
-				if err := fn(ctx, p.source, p.preds, p.purls); err != nil {
+				if err := fn(ctx, Parsed{Source: p.source, Origin: OriginReceiver, Doc: p.doc, Preds: p.preds, Purls: p.purls}); err != nil {
 					fnErr = err
 					stopped.Store(true)
 				}

@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/ravan/sluice/pkg/guacseam"
 )
 
@@ -60,11 +59,11 @@ func TestCollectReplaysDocumentsInArrivalOrder(t *testing.T) {
 	var gotSources []string
 
 	out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: dir}},
-		func(_ context.Context, source string, _ []assembler.IngestPredicates, _ []string) error {
+		func(_ context.Context, p guacseam.Parsed) error {
 			if inFn.Add(1) != 1 {
 				overlaps.Add(1)
 			}
-			gotSources = append(gotSources, filepath.Base(source))
+			gotSources = append(gotSources, filepath.Base(p.Source))
 			inFn.Add(-1)
 			return nil
 		})
@@ -96,8 +95,8 @@ func TestCollectIsDeterministicAcrossRuns(t *testing.T) {
 
 	run := func() (sources []string, failed []string) {
 		out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: dir}},
-			func(_ context.Context, source string, _ []assembler.IngestPredicates, _ []string) error {
-				sources = append(sources, filepath.Base(source))
+			func(_ context.Context, p guacseam.Parsed) error {
+				sources = append(sources, filepath.Base(p.Source))
 				return nil
 			})
 		if err != nil {

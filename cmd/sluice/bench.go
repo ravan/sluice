@@ -104,8 +104,8 @@ func runBench(cmd *cobra.Command, dir, varveAddr string) error {
 	}
 	ctx := cmd.Context()
 	var all []assembler.IngestPredicates
-	fn := func(_ context.Context, _ string, preds []assembler.IngestPredicates, _ []string) error {
-		all = append(all, preds...)
+	fn := func(_ context.Context, p guacseam.Parsed) error {
+		all = append(all, p.Preds...)
 		return nil
 	}
 	if _, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: dir}}, fn); err != nil {

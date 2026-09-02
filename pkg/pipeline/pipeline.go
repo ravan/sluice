@@ -160,7 +160,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		return nil
 	}
 
-	expand := func(ctx context.Context, source string, purls []string, handle guacseam.PredicateFunc) {
+	expand := func(ctx context.Context, source string, purls []string, handle guacseam.DocumentFunc) {
 		if !expandCfg.DepsDev {
 			return
 		}
@@ -185,13 +185,13 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	// per-document path.
 	var batch []assembler.IngestPredicates
 	var batched int
-	var fn guacseam.PredicateFunc
+	var fn guacseam.DocumentFunc
 	if oneShot {
-		fn = func(ctx context.Context, source string, preds []assembler.IngestPredicates, purls []string) error {
-			batch = append(batch, preds...)
+		fn = func(ctx context.Context, p guacseam.Parsed) error {
+			batch = append(batch, p.Preds...)
 			batched++
-			expand(ctx, source, purls, func(_ context.Context, _ string, epreds []assembler.IngestPredicates, _ []string) error {
-				batch = append(batch, epreds...)
+			expand(ctx, p.Source, p.Purls, func(_ context.Context, ep guacseam.Parsed) error {
+				batch = append(batch, ep.Preds...)
 				return nil // best-effort: an expansion doc never aborts expansion or the run
 			})
 			return nil
@@ -200,14 +200,14 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		ingestOne := func(ctx context.Context, source string, preds []assembler.IngestPredicates) error {
 			return ingestStream(ctx, source, assemble.Assemble(ctx, preds, guard, now()))
 		}
-		fn = func(ctx context.Context, source string, preds []assembler.IngestPredicates, purls []string) error {
-			if err := ingestOne(ctx, source, preds); err != nil {
+		fn = func(ctx context.Context, p guacseam.Parsed) error {
+			if err := ingestOne(ctx, p.Source, p.Preds); err != nil {
 				observer.DocumentFailed()
 				return nil // poll mode: a sink failure is logged+counted and polling continues
 			}
 			observer.DocumentIngested()
-			expand(ctx, source, purls, func(ctx context.Context, src string, epreds []assembler.IngestPredicates, _ []string) error {
-				if err := ingestOne(ctx, src, epreds); err != nil {
+			expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
+				if err := ingestOne(ctx, ep.Source, ep.Preds); err != nil {
 					observer.DocumentFailed()
 				}
 				return nil // best-effort: an expansion doc never aborts expansion or the run

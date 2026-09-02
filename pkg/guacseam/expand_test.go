@@ -87,3 +87,39 @@ func TestDrainExpansion(t *testing.T) {
 		})
 	}
 }
+
+func TestExpansionHandlerMarksOriginExpansion(t *testing.T) {
+	blob := readSmallSPDX(t)
+	var got []Parsed
+	handle := expansionHandler(func(_ context.Context, p Parsed) error {
+		got = append(got, p)
+		return nil
+	})
+	doc := &processor.Document{
+		Blob:              blob,
+		Type:              processor.DocumentUnknown,
+		Format:            processor.FormatUnknown,
+		SourceInformation: processor.SourceInformation{Collector: "deps.dev", Source: "deps.dev:pkg:x"},
+	}
+	if err := handle(context.Background(), doc); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("fn called %d times, want 1", len(got))
+	}
+	if got[0].Origin != OriginExpansion {
+		t.Errorf("Origin = %v, want OriginExpansion", got[0].Origin)
+	}
+	if got[0].Source != "deps.dev:pkg:x" || got[0].Doc != doc {
+		t.Errorf("Parsed = {Source %q, Doc %p}, want the expansion document", got[0].Source, got[0].Doc)
+	}
+
+	// A malformed expansion document is skipped, never fatal.
+	bad := &processor.Document{Blob: []byte(`{"not":"a document"}`), SourceInformation: processor.SourceInformation{Source: "bad"}}
+	if err := handle(context.Background(), bad); err != nil {
+		t.Errorf("handle(bad) = %v, want nil", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("fn called %d times after a bad doc, want still 1", len(got))
+	}
+}

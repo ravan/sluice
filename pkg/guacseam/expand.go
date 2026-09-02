@@ -30,7 +30,7 @@ type docRetriever interface {
 // (never via collector.Collect), processing/parsing/handing each emitted document to fn,
 // bounded by limit. It is an I/O boundary (real deps.dev calls) — proven by the demo, not
 // a unit test.
-func ExpandDepsDev(ctx context.Context, purls []string, limit int, fn PredicateFunc) (Expansion, error) {
+func ExpandDepsDev(ctx context.Context, purls []string, limit int, fn DocumentFunc) (Expansion, error) {
 	if len(purls) == 0 || limit <= 0 {
 		return Expansion{Limit: limit}, nil
 	}
@@ -46,15 +46,21 @@ func ExpandDepsDev(ctx context.Context, purls []string, limit int, fn PredicateF
 	if err != nil {
 		return Expansion{Limit: limit}, fmt.Errorf("building deps.dev collector: %w", err)
 	}
-	handle := func(ctx context.Context, doc *processor.Document) error {
+	return drainExpansion(ctx, col, limit, expansionHandler(fn))
+}
+
+// expansionHandler adapts fn to the per-document handler drainExpansion drives:
+// process+parse the expansion document (no enrichment scans) and hand it to fn
+// tagged OriginExpansion. A malformed document is skipped, never fatal.
+func expansionHandler(fn DocumentFunc) func(context.Context, *processor.Document) error {
+	return func(ctx context.Context, doc *processor.Document) error {
 		collector.AddChildLogger(logging.FromContext(ctx), doc)
 		preds, subpurls, perr := processAndParse(ctx, doc, ScanFlags{})
 		if perr != nil {
 			return nil // best-effort: a malformed expansion doc is skipped, not fatal
 		}
-		return fn(ctx, doc.SourceInformation.Source, preds, subpurls)
+		return fn(ctx, Parsed{Source: doc.SourceInformation.Source, Origin: OriginExpansion, Doc: doc, Preds: preds, Purls: subpurls})
 	}
-	return drainExpansion(ctx, col, limit, handle)
 }
 
 // drainExpansion is the testable core: run r.RetrieveArtifacts in a goroutine emitting to a

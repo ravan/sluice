@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/ravan/sluice/pkg/guacseam"
 )
 
@@ -20,10 +19,10 @@ func TestCollectFilesParsesFixture(t *testing.T) {
 	unionKeys := map[string]bool{}
 	names := map[string]bool{}
 
-	fn := func(ctx context.Context, source string, preds []assembler.IngestPredicates, _ []string) error {
+	fn := func(ctx context.Context, doc guacseam.Parsed) error {
 		calls++
-		gotSource = source
-		for _, p := range preds {
+		gotSource = doc.Source
+		for _, p := range doc.Preds {
 			for key, idp := range p.GetPackages(ctx) {
 				unionKeys[key] = true
 				if idp.PackageInput != nil {
@@ -74,7 +73,7 @@ func TestCollectFilesTwiceInOneProcess(t *testing.T) {
 
 	run := func() guacseam.Outcome {
 		out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: "../../testdata/sboms"}},
-			func(context.Context, string, []assembler.IngestPredicates, []string) error { return nil })
+			func(context.Context, guacseam.Parsed) error { return nil })
 		if err != nil {
 			t.Fatalf("Collect returned error: %v", err)
 		}
@@ -102,7 +101,7 @@ func TestCollectFilesSkipsUnparseableDocument(t *testing.T) {
 
 	var calls int
 	out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: dir}},
-		func(context.Context, string, []assembler.IngestPredicates, []string) error {
+		func(context.Context, guacseam.Parsed) error {
 			calls++
 			return nil
 		})
@@ -138,7 +137,7 @@ func TestCollectFilesOnSkipHook(t *testing.T) {
 	out, err := guacseam.Collect(ctx, guacseam.Sources{
 		Files:  &guacseam.FilesReceiver{Path: dir},
 		OnSkip: func(fd guacseam.FailedDocument) { skipped = append(skipped, fd) },
-	}, func(context.Context, string, []assembler.IngestPredicates, []string) error { return nil })
+	}, func(context.Context, guacseam.Parsed) error { return nil })
 	if err != nil {
 		t.Fatalf("Collect returned error: %v", err)
 	}
@@ -167,8 +166,8 @@ func TestCollectFilesPollPicksUpNewFile(t *testing.T) {
 	writeFixture("a.json")
 
 	got := make(chan string, 8)
-	fn := func(_ context.Context, source string, _ []assembler.IngestPredicates, _ []string) error {
-		got <- source
+	fn := func(_ context.Context, p guacseam.Parsed) error {
+		got <- p.Source
 		return nil
 	}
 
@@ -215,5 +214,45 @@ func TestCollectFilesPollPicksUpNewFile(t *testing.T) {
 		case <-deadline:
 			t.Fatal("timed out waiting for CollectFiles to return after cancel")
 		}
+	}
+}
+
+func TestCollectFilesPassesParsedDocument(t *testing.T) {
+	ctx := context.Background()
+	want, err := os.ReadFile("../../testdata/sboms/small-spdx.json")
+	if err != nil {
+		t.Fatalf("reading fixture: %v", err)
+	}
+
+	var got []guacseam.Parsed
+	_, err = guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: "../../testdata/sboms"}},
+		func(_ context.Context, p guacseam.Parsed) error {
+			got = append(got, p)
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("fn called %d times, want 1", len(got))
+	}
+	p := got[0]
+	if p.Doc == nil {
+		t.Fatal("Parsed.Doc = nil, want the raw document")
+	}
+	if string(p.Doc.Blob) != string(want) {
+		t.Errorf("Parsed.Doc.Blob differs from the fixture bytes (len %d vs %d)", len(p.Doc.Blob), len(want))
+	}
+	if !strings.Contains(p.Source, "small-spdx.json") || p.Source != p.Doc.SourceInformation.Source {
+		t.Errorf("Parsed.Source = %q, want the document's source URI %q", p.Source, p.Doc.SourceInformation.Source)
+	}
+	if p.Origin != guacseam.OriginReceiver {
+		t.Errorf("Parsed.Origin = %v, want OriginReceiver", p.Origin)
+	}
+	if len(p.Preds) == 0 {
+		t.Errorf("Parsed.Preds is empty, want the parsed predicates")
+	}
+	if len(p.Purls) != 3 {
+		t.Errorf("Parsed.Purls has %d entries, want 3", len(p.Purls))
 	}
 }

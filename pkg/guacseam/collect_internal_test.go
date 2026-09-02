@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/handler/collector"
 	"github.com/guacsec/guac/pkg/handler/processor"
 )
@@ -46,9 +45,9 @@ func TestCollectWithMultipleCollectors(t *testing.T) {
 
 	var calls int
 	names := map[string]bool{}
-	fn := func(ctx context.Context, _ string, preds []assembler.IngestPredicates, _ []string) error {
+	fn := func(ctx context.Context, doc Parsed) error {
 		calls++
-		for _, p := range preds {
+		for _, p := range doc.Preds {
 			for _, idp := range p.GetPackages(ctx) {
 				if idp.PackageInput != nil {
 					names[idp.PackageInput.Name] = true
@@ -95,7 +94,7 @@ func TestCollectWithDeregistersForReuse(t *testing.T) {
 
 	run := func() Outcome {
 		out, err := collectWith(ctx, []collector.Collector{fA, fB}, ScanFlags{}, nil,
-			func(context.Context, string, []assembler.IngestPredicates, []string) error { return nil })
+			func(context.Context, Parsed) error { return nil })
 		if err != nil {
 			t.Fatalf("collectWith returned error: %v", err)
 		}
