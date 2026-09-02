@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,13 +46,26 @@ type ingestErrorBody struct {
 	Committed Receipt `json:"committed"`
 }
 
+// TokenProvider returns the bearer token for one HTTP attempt. It is called
+// once per attempt, so a short-lived token can be minted or refreshed by the
+// caller (a 421 redirect or a 429 retry may land after a 60 s token expired).
+// It must be safe for concurrent use.
+type TokenProvider func(ctx context.Context) (string, error)
+
+// StaticToken wraps a constant token as a TokenProvider.
+func StaticToken(token string) TokenProvider {
+	return func(context.Context) (string, error) { return token, nil }
+}
+
 // ClientConfig is the untyped edge; Addr is parsed exactly once, in NewClient.
 type ClientConfig struct {
-	Addr        string
-	Token       string
-	HTTP        *http.Client
-	MaxAttempts int
-	OnRetry     func(attempt int, wait time.Duration)
+	Addr          string
+	Token         string        // convenience; wrapped by StaticToken when TokenProvider is nil
+	TokenProvider TokenProvider // wins over Token when both are set
+	Graph         string        // "" ⇒ no ?graph= parameter ⇒ Varve default graph
+	HTTP          *http.Client
+	MaxAttempts   int
+	OnRetry       func(attempt int, wait time.Duration)
 }
 
 // sleeper is the injected wait seam (real: sleepUntil; tests: a recording no-op).
@@ -61,7 +75,8 @@ type sleeper func(ctx context.Context, d time.Duration) error
 // (§3 boundary).
 type Client struct {
 	base        *url.URL
-	token       string
+	token       TokenProvider
+	graph       string
 	http        *http.Client
 	maxAttempts int
 	onRetry     func(attempt int, wait time.Duration)
@@ -74,8 +89,10 @@ const (
 	retryMaxDelay  = 30 * time.Second
 )
 
-// NewClient parses cfg. It errors when Addr is not an absolute http/https URL
-// or Token is empty. A nil HTTP becomes &http.Client{Timeout: 2 * time.Minute}.
+// NewClient parses cfg. It errors when Addr is not an absolute http/https URL,
+// when both Token and TokenProvider are empty, or when Graph starts with "__"
+// (Varve reserves that prefix). A nil HTTP becomes
+// &http.Client{Timeout: 2 * time.Minute}.
 func NewClient(cfg ClientConfig) (*Client, error) {
 	u, err := url.Parse(cfg.Addr)
 	if err != nil {
@@ -84,8 +101,15 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fmt.Errorf("addr %q must be an absolute http/https URL", cfg.Addr)
 	}
-	if cfg.Token == "" {
-		return nil, fmt.Errorf("token must not be empty")
+	token := cfg.TokenProvider
+	if token == nil {
+		if cfg.Token == "" {
+			return nil, fmt.Errorf("token must not be empty")
+		}
+		token = StaticToken(cfg.Token)
+	}
+	if strings.HasPrefix(cfg.Graph, "__") {
+		return nil, fmt.Errorf("graph %q: names starting with \"__\" are reserved", cfg.Graph)
 	}
 	hc := cfg.HTTP
 	if hc == nil {
@@ -97,7 +121,8 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 	return &Client{
 		base:        u,
-		token:       cfg.Token,
+		token:       token,
+		graph:       cfg.Graph,
 		http:        hc,
 		maxAttempts: maxAttempts,
 		onRetry:     cfg.OnRetry,
@@ -154,10 +179,21 @@ func sleepUntil(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Ingest POSTs s to <Addr>/v1/ingest as application/x-ndjson and returns the
-// receipt. Transient failures (transport error, 408, 429, 503) are retried
-// with capped exponential backoff; a 421 is followed once to the writer named
-// in the error body. Any terminal non-2xx answer is returned as *IngestError.
+// ingestURL is <base>/v1/ingest plus ?graph=<graph> when a graph is set.
+func (c *Client) ingestURL(base *url.URL) string {
+	u := base.JoinPath("/v1/ingest")
+	if c.graph != "" {
+		u.RawQuery = url.Values{"graph": {c.graph}}.Encode()
+	}
+	return u.String()
+}
+
+// Ingest POSTs s to <Addr>/v1/ingest[?graph=<Graph>] as application/x-ndjson
+// and returns the receipt. The bearer token is fetched from the TokenProvider
+// once per attempt. Transient failures (transport error, 408, 429, 503) are
+// retried with capped exponential backoff; a 421 is followed once to the
+// writer named in the error body. Any terminal non-2xx answer (including 404
+// unknown_graph) is returned as *IngestError.
 func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 	var buf bytes.Buffer
 	if err := WriteNDJSON(&buf, s); err != nil {
@@ -167,11 +203,15 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 	target := c.base
 
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.JoinPath("/v1/ingest").String(), bytes.NewReader(buf.Bytes()))
+		token, err := c.token(ctx)
+		if err != nil {
+			return Receipt{}, fmt.Errorf("fetch token: %w", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.ingestURL(target), bytes.NewReader(buf.Bytes()))
 		if err != nil {
 			return Receipt{}, fmt.Errorf("build request: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/x-ndjson")
 
 		resp, err := c.http.Do(req)
