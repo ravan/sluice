@@ -332,3 +332,49 @@ func TestLoadExampleConfig(t *testing.T) {
 		t.Errorf("Sink.Varve.Addr = empty, want non-empty")
 	}
 }
+
+func TestLoadSinkGraph(t *testing.T) {
+	const src = `receivers:
+  files: {path: ./x}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN, graph: org_a}
+`
+	cfg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Sink.Varve.Graph != "org_a" {
+		t.Errorf("Graph = %q, want org_a", cfg.Sink.Varve.Graph)
+	}
+
+	const noGraph = `receivers:
+  files: {path: ./x}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN}
+`
+	cfg, err = Load(strings.NewReader(noGraph))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Sink.Varve.Graph != "" {
+		t.Errorf("Graph = %q, want empty (Varve default graph)", cfg.Sink.Varve.Graph)
+	}
+
+	const reserved = `receivers:
+  files: {path: ./x}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN, graph: __meta}
+`
+	if _, err := Load(strings.NewReader(reserved)); err == nil || !strings.Contains(err.Error(), "sink.varve.graph") {
+		t.Errorf("Load(reserved graph) error = %v, want a sink.varve.graph error", err)
+	}
+
+	const unknown = `receivers:
+  files: {path: ./x}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN, graf: org_a}
+`
+	if _, err := Load(strings.NewReader(unknown)); err == nil {
+		t.Errorf("Load(unknown sink key) = nil error, want a KnownFields failure")
+	}
+}

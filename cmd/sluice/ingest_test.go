@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ravan/sluice/pkg/config"
 )
 
 func TestOCIReceivers(t *testing.T) {
@@ -61,6 +63,7 @@ func TestGCSReceivers(t *testing.T) {
 func TestBuildIngestConfig(t *testing.T) {
 	cfg, err := buildIngestConfig(filesReceivers("d"), ingestFlags{
 		varveAddr:     "http://v",
+		varveGraph:    "org_a",
 		validFloor:    "2000-01-01T00:00:00Z",
 		validSkew:     5 * time.Minute,
 		enrichVulns:   true,
@@ -85,13 +88,29 @@ func TestBuildIngestConfig(t *testing.T) {
 	if cfg.Processors.ValidTime.FutureSkew != 5*time.Minute {
 		t.Errorf("ValidTime.FutureSkew = %v, want 5m", cfg.Processors.ValidTime.FutureSkew)
 	}
-	if cfg.Sink.Varve.Addr != "http://v" || cfg.Sink.Varve.TokenEnv != "VARVE_TOKEN" {
-		t.Errorf("Sink.Varve = %+v, want {http://v VARVE_TOKEN}", cfg.Sink.Varve)
+	if cfg.Sink.Varve.Addr != "http://v" || cfg.Sink.Varve.TokenEnv != "VARVE_TOKEN" || cfg.Sink.Varve.Graph != "org_a" {
+		t.Errorf("Sink.Varve = %+v, want {http://v VARVE_TOKEN org_a}", cfg.Sink.Varve)
 	}
 
 	if _, err := buildIngestConfig(filesReceivers("d"), ingestFlags{validFloor: "nope"}); err == nil {
 		t.Fatal("expected an error for a bad floor, got nil")
 	} else if !strings.Contains(err.Error(), "valid-floor") {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), "valid-floor")
+	}
+}
+
+func TestIngestVarveGraphFlag(t *testing.T) {
+	cmd := ingestCmd()
+	if f := cmd.PersistentFlags().Lookup("varve-graph"); f == nil {
+		t.Fatal("ingest has no --varve-graph flag")
+	} else if f.DefValue != "" {
+		t.Errorf("--varve-graph default = %q, want empty (Varve default graph)", f.DefValue)
+	}
+}
+
+func TestClientConfigFromSink(t *testing.T) {
+	cc := clientConfigFrom(config.VarveSink{Addr: "http://v", TokenEnv: "VARVE_TOKEN", Graph: "org_a"}, "tok")
+	if cc.Addr != "http://v" || cc.Graph != "org_a" || cc.Token != "tok" {
+		t.Errorf("clientConfigFrom = %+v, want Addr http://v Graph org_a Token tok", cc)
 	}
 }

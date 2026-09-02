@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ravan/sluice/pkg/validtime"
@@ -91,11 +92,13 @@ type Sink struct {
 	Varve VarveSink
 }
 
-// VarveSink names the writer address and the ENV VAR (not the token) holding the
-// bearer token — so a secret never lands in the YAML or in argv.
+// VarveSink names the writer address, the ENV VAR (not the token) holding the
+// bearer token — so a secret never lands in the YAML or in argv — and the
+// named graph to ingest into ("" ⇒ the Varve default graph).
 type VarveSink struct {
 	Addr     string
 	TokenEnv string
+	Graph    string // wire: sink.varve.graph
 }
 
 type wireConfig struct {
@@ -167,6 +170,7 @@ type wireSink struct {
 type wireVarveSink struct {
 	Addr     string `yaml:"addr"`
 	TokenEnv string `yaml:"token_env"`
+	Graph    string `yaml:"graph"`
 }
 
 // Load parses and validates a pipeline.yaml.
@@ -320,7 +324,10 @@ func Load(r io.Reader) (Config, error) {
 	if wire.Sink.Varve.TokenEnv == "" {
 		return Config{}, fmt.Errorf("config: sink.varve.token_env is required")
 	}
-	cfg.Sink.Varve = VarveSink{Addr: wire.Sink.Varve.Addr, TokenEnv: wire.Sink.Varve.TokenEnv}
+	if strings.HasPrefix(wire.Sink.Varve.Graph, "__") {
+		return Config{}, fmt.Errorf("config: sink.varve.graph %q: names starting with \"__\" are reserved", wire.Sink.Varve.Graph)
+	}
+	cfg.Sink.Varve = VarveSink{Addr: wire.Sink.Varve.Addr, TokenEnv: wire.Sink.Varve.TokenEnv, Graph: wire.Sink.Varve.Graph}
 
 	return cfg, nil
 }

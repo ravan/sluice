@@ -109,3 +109,34 @@ func TestHandlerServesPrometheusText(t *testing.T) {
 		t.Errorf("body missing outcome=\"ingested\"; got:\n%s", text)
 	}
 }
+
+func TestDecoratorCounters(t *testing.T) {
+	m := New()
+	m.DocumentDecorated()
+	m.DocumentDecorated()
+	m.DocumentDecorateFailed()
+
+	if got := testutil.ToFloat64(m.decorated); got != 2 {
+		t.Errorf("decorated = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(m.decFailed); got != 1 {
+		t.Errorf("decorate failed = %v, want 1", got)
+	}
+
+	srv := httptest.NewServer(m.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET %s: %v", srv.URL, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	for _, name := range []string{"sluice_documents_decorated_total", "sluice_documents_decorate_failed_total"} {
+		if !strings.Contains(string(body), name) {
+			t.Errorf("body missing metric name %s", name)
+		}
+	}
+}

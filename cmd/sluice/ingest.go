@@ -15,6 +15,7 @@ import (
 // ingestFlags carries the shared persistent flag values of the `ingest` command.
 type ingestFlags struct {
 	varveAddr      string
+	varveGraph     string
 	validFloor     string
 	validSkew      time.Duration
 	enrichVulns    bool
@@ -55,20 +56,26 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 			Enrich:    config.EnrichProcessor{Vulns: f.enrichVulns, Licenses: f.enrichLicenses, EOL: f.enrichEOL, DepsDev: f.enrichDepsDev},
 			Expand:    config.ExpandProcessor{DepsDev: f.expandDepsDev, MaxDocs: f.expandMaxDocs},
 		},
-		Sink: config.Sink{Varve: config.VarveSink{Addr: f.varveAddr, TokenEnv: "VARVE_TOKEN"}},
+		Sink: config.Sink{Varve: config.VarveSink{Addr: f.varveAddr, TokenEnv: "VARVE_TOKEN", Graph: f.varveGraph}},
 	}, nil
+}
+
+// clientConfigFrom maps the config's sink declaration plus the resolved token
+// to a varve.ClientConfig. Both front-ends build their client through it.
+func clientConfigFrom(sink config.VarveSink, token string) varve.ClientConfig {
+	return varve.ClientConfig{Addr: sink.Addr, Token: token, Graph: sink.Graph}
 }
 
 // runIngest performs the token-check → client → pipeline.Run → print-receipt flow
 // shared by every ingest subcommand. Returns a non-nil error when documents were
 // skipped so the CLI exits non-zero.
-func runIngest(cmd *cobra.Command, cfg config.Config, varveAddr string) error {
-	token := os.Getenv("VARVE_TOKEN")
+func runIngest(cmd *cobra.Command, cfg config.Config) error {
+	token := os.Getenv(cfg.Sink.Varve.TokenEnv)
 	if token == "" {
-		return fmt.Errorf("VARVE_TOKEN environment variable is not set")
+		return fmt.Errorf("%s environment variable is not set", cfg.Sink.Varve.TokenEnv)
 	}
 	now := time.Now().UTC()
-	client, err := varve.NewClient(varve.ClientConfig{Addr: varveAddr, Token: token})
+	client, err := varve.NewClient(clientConfigFrom(cfg.Sink.Varve, token))
 	if err != nil {
 		return fmt.Errorf("configuring Varve client: %w", err)
 	}
@@ -92,6 +99,8 @@ func ingestCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&flags.varveAddr, "varve-addr", "http://127.0.0.1:8080",
 		"Varve writer base URL")
+	cmd.PersistentFlags().StringVar(&flags.varveGraph, "varve-graph", "",
+		"named Varve graph to ingest into (empty: the writer's default graph)")
 	cmd.PersistentFlags().StringVar(&flags.validFloor, "valid-floor", "2000-01-01T00:00:00Z",
 		"reject document timestamps earlier than this RFC3339 instant")
 	cmd.PersistentFlags().DurationVar(&flags.validSkew, "valid-skew", 5*time.Minute,
@@ -118,7 +127,7 @@ func ingestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runIngest(cmd, cfg, flags.varveAddr)
+			return runIngest(cmd, cfg)
 		},
 	}
 
@@ -132,7 +141,7 @@ func ingestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runIngest(cmd, cfg, flags.varveAddr)
+			return runIngest(cmd, cfg)
 		},
 	}
 	oci.Flags().BoolVar(&ociRegistry, "oci-registry", false, "treat refs as registry hosts and collect whole registries")
@@ -148,7 +157,7 @@ func ingestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runIngest(cmd, cfg, flags.varveAddr)
+			return runIngest(cmd, cfg)
 		},
 	}
 	s3.Flags().StringVar(&s3URL, "s3-url", "", "custom S3 endpoint (e.g. MinIO); empty for AWS SDK defaults")
@@ -164,7 +173,7 @@ func ingestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runIngest(cmd, cfg, flags.varveAddr)
+			return runIngest(cmd, cfg)
 		},
 	}
 

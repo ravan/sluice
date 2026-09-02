@@ -98,11 +98,9 @@ func runCmd() *cobra.Command {
 			}
 
 			m := metrics.New()
-			client, err := varve.NewClient(varve.ClientConfig{
-				Addr:    cfg.Sink.Varve.Addr,
-				Token:   token,
-				OnRetry: func(int, time.Duration) { m.SinkRetry() },
-			})
+			cc := clientConfigFrom(cfg.Sink.Varve, token)
+			cc.OnRetry = func(int, time.Duration) { m.SinkRetry() }
+			client, err := varve.NewClient(cc)
 			if err != nil {
 				return fmt.Errorf("configuring Varve client: %w", err)
 			}
@@ -129,6 +127,7 @@ func runCmd() *cobra.Command {
 
 			logger.Info("daemon started",
 				"metrics_addr", ln.Addr().String(),
+				"graph", cfg.Sink.Varve.Graph,
 				"receivers", strings.Join(receiverKinds(cfg.Receivers), ","))
 
 			rec, runErr := pipeline.Run(ctx, cfg, pipeline.Deps{
