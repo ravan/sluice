@@ -44,10 +44,11 @@ structurally cannot.
 | **Parser stage** | Format detection/verification + per-format parsing + ingest-time enrichment | GUAC `process.Process` + `parser.ParseDocumentTree`, imported |
 | **Predicates** | The IR between parsing and assembly: 17 predicate lists of plain input structs | GUAC `assembler.IngestPredicates`, imported |
 | **Processor** | A pipeline stage acting on predicates or purls: enrichment scanners, expansion, valid-time guard, batching | sluice code (scanners themselves imported from GUAC) |
-| **Assembler** | Predicates → graph records. The heart of sluice; net-new code | `internal/assemble` |
-| **Record stream** | The canonical output: bulk-NDJSON node/edge records with `_id`s and valid time | `internal/varve` emits it; the wire contract is Varve's `docs/book/src/reference/bulk-ingest.md` |
-| **Sink** | The single destination: `POST /v1/ingest` on the Varve writer | `internal/varve` client |
-| **Receipt** | Per-run outcome: node/edge counts, transactions, basis, valid-time fallbacks, expansion budget use, skipped documents | sluice code |
+| **Assembler** | Predicates → graph records. The heart of sluice; net-new code | `pkg/assemble` |
+| **Record stream** | The canonical output: bulk-NDJSON node/edge records with `_id`s and valid time | `pkg/varve` emits it; the wire contract is Varve's `docs/book/src/reference/bulk-ingest.md` |
+| **Decorator** | An embedding module's hook: sees one document (bytes, digest, source, origin, valid time) plus the records assembled for it, and returns extra records that join the same stream and the same transaction. Runs after assemble, before the sink, in both modes. An error skips only that document | `pkg/pipeline.Decorator`; the caller supplies them via `Deps.Decorators` |
+| **Sink** | The single destination: `POST /v1/ingest` on the Varve writer, optionally into a named graph (`?graph=`) | `pkg/varve` client |
+| **Receipt** | Per-run outcome: node/edge counts, transactions, basis, valid-time fallbacks, expansion budget use, skipped documents, decorated and decorate-failed documents | sluice code |
 
 There is exactly **one** sink kind and **one** record stream format. There is
 no exporter registry (§7). Anything else that wants the data consumes the
@@ -157,21 +158,23 @@ committed progress reported (mirroring Varve's error body).
 ```
 sluice/
   cmd/sluice/      cobra entry: run, ingest, version
-  internal/pipeline/   builds receiver→parser→processor→assembler→sink from config
-  internal/guacseam/   the ONLY place GUAC behavior is invoked
-                       (collector.Collect, process.Process, parser.ParseDocumentTree)
-  internal/assemble/   Predicates → record stream; ids; the 17 mappings; golden tests
-  internal/validtime/  the guard (one implementation)
-  internal/varve/      /v1/ingest streaming client (gzip, 421/429/retry), receipt
-  internal/config/     YAML schema + the one validator
-  docs/                this spec, plans/, HANDOVER batons
+  pkg/pipeline/    builds receiver→parser→processor→assembler→decorator→sink from config
+  pkg/guacseam/    the ONLY place GUAC behavior is invoked
+                   (collector.Collect, process.Process, parser.ParseDocumentTree)
+  pkg/assemble/    Predicates → record stream; ids; the 17 mappings; golden tests
+  pkg/validtime/   the guard (one implementation)
+  pkg/varve/       /v1/ingest streaming client (421/429/retry, per-attempt token, ?graph=), receipt, Merge
+  pkg/config/      YAML schema + the one validator
+  pkg/metrics/     Prometheus counters; satisfies pipeline.Observer
+  docs/            this spec, api.md (the library surface), plans/, HANDOVER batons
 ```
 
 Hard boundaries: GUAC *behavioral* entry points are called only from
-`internal/guacseam` (GUAC's plain data types — `IngestPredicates`, input
-specs, `processor.Document` — may appear anywhere). `internal/assemble`
-knows nothing of HTTP; `internal/varve` knows nothing of GUAC. There is one
-config validator and one valid-time guard.
+`pkg/guacseam` (GUAC's plain data types — `IngestPredicates`, input
+specs, `processor.Document` — may appear anywhere). `pkg/assemble`
+knows nothing of HTTP; `pkg/varve` knows nothing of GUAC. There is one
+config validator, one valid-time guard, and one stream dedup rule
+(`varve.Merge`).
 
 Self-observability: the daemon exposes Prometheus metrics (documents by
 outcome, records emitted, valid-time fallbacks, expansion budget, sink
@@ -257,6 +260,8 @@ enforce (corrected 2026-08-06 during S0 planning; the earlier sketch showed
 | Collector genericity | OTel Collector: exporter plugin registry, many wire formats | Single canonical record stream, single sink kind. Building an exporter framework before a second real consumer exists is the inner-platform trap |
 | Ingest transport | `feat/varve-backend` branch: rendered GQL programs over `/v1/tx` (evidence edges ~409/s) | Bulk NDJSON over `/v1/ingest` (~166k records/s), which shipped after the branch concluded |
 | Edge encoding | branch: generic `:E {kind: …}` edges | Semantic edge labels — Varve's planner prunes on labels, and `varve`'s edge-predicate work showed property-discriminated edges defeat pruning |
+| Package layout | Go convention for an application: `internal/` | `pkg/` since `v0.1.0` (2026-09-02). Silt embeds sluice as a library and Go forbids importing another module's `internal/`. Moved with history, no shims; `v0.x` signals the API may still move |
+| Extension point | OTel Collector: processor plugins over a batch | One `Decorator` hook per document, after assemble and before the sink. A batch-level hook could not tell which bytes made which records; a pre-assemble hook would see no Sluice ids to link to |
 
 ## 8. Deferred (consciously)
 

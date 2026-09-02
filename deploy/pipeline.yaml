@@ -30,3 +30,4 @@ sink:
   varve:
     addr: "http://127.0.0.1:8080"
     token_env: VARVE_TOKEN
+    # graph: org_a   # optional named graph (Varve >= 1.1.0); omit for the default graph

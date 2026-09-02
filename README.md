@@ -149,6 +149,7 @@ sink:
   varve:
     addr: http://127.0.0.1:8080
     token_env: VARVE_TOKEN               # name of the env var holding the bearer token — no secret in the file
+    graph: org_a                         # optional named Varve graph (Varve ≥ 1.1.0); omit for the default graph
 ```
 
 ## CLI reference
@@ -165,6 +166,7 @@ sluice version                            print version information
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--varve-addr` | `http://127.0.0.1:8080` | Varve ingest endpoint |
+| `--varve-graph` | — | named Varve graph to ingest into (omit for the writer's default graph) |
 | `--valid-floor` | — | reject valid timestamps before this instant (fall back to ingest time) |
 | `--valid-skew` | — | reject valid timestamps this far into the future |
 | `--enrich-vulns` | `false` | OSV vulnerability evidence |
@@ -191,6 +193,8 @@ The daemon exposes Prometheus metrics and a health check on `--metrics-addr` (de
 | `sluice_valid_time_fallbacks_total` | valid timestamps rejected by the guard and fallen back to ingest time |
 | `sluice_sink_retries_total` | transient sink failures retried |
 | `sluice_expansion_documents_total` | extra documents ingested by deps.dev expansion |
+| `sluice_documents_decorated_total` | documents that passed every configured decorator |
+| `sluice_documents_decorate_failed_total` | documents a decorator rejected (skipped, listed in the receipt) |
 
 `GET /healthz` returns readiness; `GET /metrics` serves the Prometheus text exposition.
 
@@ -215,6 +219,27 @@ just varve-image   # once: build sluice/varve:local from a sibling Varve checkou
 | `just gallery` | The full-dress run from clean durable volumes: blast-radius, valid-time, benchmark, and crash-replay in sequence. |
 
 Tear any stack down with `just varve-down`. Overrides: `VARVE_IMAGE` (image to run, default `sluice/varve:local`), `VARVE_SRC` (sibling Varve checkout the image builds from), `VARVE_PORT` (host port, default `8080`).
+
+## Use as a library
+
+Every package under `pkg/` is importable (`docs/api.md` lists the surface). Another Go module can run the pipeline into a named Varve graph with its own bearer token, and add its own records to each document's stream through a `pipeline.Decorator`:
+
+```go
+client, err := varve.NewClient(varve.ClientConfig{
+	Addr:          "http://varve:8080",
+	Graph:         "org_a",                       // ?graph=org_a
+	TokenProvider: func(ctx context.Context) (string, error) { return mintToken(ctx) },
+})
+if err != nil { return err }
+
+cfg := config.Config{
+	Receivers:  config.Receivers{Files: &config.FilesReceiver{Path: "./inbox"}},
+	Processors: config.Processors{ValidTime: config.ValidTimeProcessor{Floor: validtime.Default().Floor, FutureSkew: validtime.Default().Skew}},
+}
+rec, err := pipeline.Run(ctx, cfg, pipeline.Deps{Sink: client, Decorators: []pipeline.Decorator{myDecorator}})
+```
+
+A decorator receives the document's bytes, digest, source, origin, resolved valid time and the records Sluice assembled for it. It returns extra records; they merge into the same stream and reach Varve in the same transaction. A decorator error skips only that document and appears in `Receipt.DecorateFailed`.
 
 ## Development
 
