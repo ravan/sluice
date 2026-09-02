@@ -13,38 +13,35 @@ import (
 	"github.com/ravan/sluice/pkg/varve"
 )
 
-// builder accumulates the flattened graph for a set of documents, deduplicating
-// every node and edge by its deterministic id (first write wins; a repeat is
-// byte-identical, so first-wins == any-wins). It is the only stateful object in
-// the package; all mapping funcs write through it.
+// builder accumulates the flattened graph for a set of documents. Every
+// addNode/addEdge appends a record stamped with the current assertion's
+// valid_from; Stream() dedups the lot through varve.Merge (first write wins,
+// earliest valid_from wins) so the one dedup rule lives in one place. It is
+// the only stateful object in the package; all mapping funcs write through it.
 type builder struct {
-	nodes     map[varve.NodeID]varve.NodeRecord
-	edges     map[varve.EdgeID]varve.EdgeRecord
-	order     []varve.NodeID
+	nodes     []varve.NodeRecord
+	edges     []varve.EdgeRecord
 	guard     validtime.Guard
 	now       time.Time
 	cur       time.Time
-	nodeVF    map[varve.NodeID]time.Time
-	edgeVF    map[varve.EdgeID]time.Time
+	earliest  time.Time // earliest native (non-fallback) assertion time seen
 	fallbacks int
 }
 
 func newBuilder(guard validtime.Guard, now time.Time) *builder {
-	return &builder{
-		nodes:  map[varve.NodeID]varve.NodeRecord{},
-		edges:  map[varve.EdgeID]varve.EdgeRecord{},
-		guard:  guard,
-		now:    now,
-		nodeVF: map[varve.NodeID]time.Time{},
-		edgeVF: map[varve.EdgeID]time.Time{},
-	}
+	return &builder{guard: guard, now: now}
 }
 
-// AssembleResult is Assemble's return: the stamped stream plus the count of
-// evidence assertions whose timestamp fell back to ingest time (§2.4, §6 inv. 9).
+// AssembleResult is Assemble's return: the stamped stream, the count of
+// evidence assertions whose timestamp fell back to ingest time (§2.4, §6 inv.
+// 9), and the document-level valid time. ValidFrom is the earliest native
+// assertion time the guard accepted; when no assertion carried an acceptable
+// time it is the ingest time and Fallback is true.
 type AssembleResult struct {
 	Stream    varve.Stream
 	Fallbacks int
+	ValidFrom time.Time
+	Fallback  bool
 }
 
 // beginAssertion resolves the current assertion's native timestamp under the
@@ -55,38 +52,17 @@ func (b *builder) beginAssertion(t *time.Time) {
 	b.cur = vf
 	if fallback {
 		b.fallbacks++
-	}
-}
-
-// foldNodeVF keeps the earliest non-zero valid_from seen for id (dedup takes the
-// min, so identity nodes reflect the earliest asserting document, §2.4).
-func (b *builder) foldNodeVF(id varve.NodeID) {
-	if b.cur.IsZero() {
 		return
 	}
-	if prev, ok := b.nodeVF[id]; !ok || b.cur.Before(prev) {
-		b.nodeVF[id] = b.cur
+	if b.earliest.IsZero() || vf.Before(b.earliest) {
+		b.earliest = vf
 	}
 }
 
-// foldEdgeVF is identical, over edgeVF keyed by varve.EdgeID.
-func (b *builder) foldEdgeVF(id varve.EdgeID) {
-	if b.cur.IsZero() {
-		return
-	}
-	if prev, ok := b.edgeVF[id]; !ok || b.cur.Before(prev) {
-		b.edgeVF[id] = b.cur
-	}
-}
-
-// addNode inserts a node record if its id is unseen (dedup). props omit any
-// empty-string value (§6 inv. 3: absence is omission); _id is added by the
-// emitter, not here.
+// addNode appends a node record stamped with cur. props omit any empty-string
+// value (§6 inv. 3: absence is omission); _id is added by the emitter, not
+// here. Repeats of the same id collapse in Stream().
 func (b *builder) addNode(id varve.NodeID, label varve.NodeLabel, props []varve.Prop) {
-	b.foldNodeVF(id)
-	if _, ok := b.nodes[id]; ok {
-		return
-	}
 	kept := make([]varve.Prop, 0, len(props))
 	for _, p := range props {
 		if s, ok := p.Value.(varve.Str); ok && s == "" {
@@ -94,22 +70,16 @@ func (b *builder) addNode(id varve.NodeID, label varve.NodeLabel, props []varve.
 		}
 		kept = append(kept, p)
 	}
-	b.nodes[id] = varve.NodeRecord{ID: id, Labels: []varve.NodeLabel{label}, Props: kept}
-	b.order = append(b.order, id)
+	b.nodes = append(b.nodes, varve.NodeRecord{ID: id, Labels: []varve.NodeLabel{label}, Props: kept, ValidFrom: b.cur})
 }
 
-// addEdge inserts one semantic edge (dedup by EdgeIDFor). A silent no-op if
-// either endpoint id is empty.
+// addEdge appends one semantic edge (id by EdgeIDFor) stamped with cur. A
+// silent no-op if either endpoint id is empty.
 func (b *builder) addEdge(src varve.NodeID, label varve.EdgeLabel, dst varve.NodeID) {
 	if src == "" || dst == "" {
 		return
 	}
-	id := EdgeIDFor(src, label, dst)
-	b.foldEdgeVF(id)
-	if _, ok := b.edges[id]; ok {
-		return
-	}
-	b.edges[id] = varve.EdgeRecord{ID: id, Label: label, Src: src, Dst: dst}
+	b.edges = append(b.edges, varve.EdgeRecord{ID: EdgeIDFor(src, label, dst), Label: label, Src: src, Dst: dst, ValidFrom: b.cur})
 }
 
 // addPackage ensures the PkgVersion+PkgName nodes and their PkgHasVersion edge
@@ -246,24 +216,24 @@ func (b *builder) psaSubject(pkg *generated.PkgInputSpec, flag generated.MatchFl
 	return "", ""
 }
 
-// Stream returns the accumulated nodes and edges, each sorted by id, so the
-// emitted NDJSON is byte-deterministic for a given input (§6 inv. 2).
+// Stream dedups the accumulated records through varve.Merge and sorts nodes
+// and edges by id, so the emitted NDJSON is byte-deterministic for a given
+// input (§6 inv. 2).
 func (b *builder) Stream() varve.Stream {
-	nodes := make([]varve.NodeRecord, 0, len(b.nodes))
-	for _, n := range b.nodes {
-		n.ValidFrom = b.nodeVF[n.ID]
-		nodes = append(nodes, n)
-	}
-	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+	s := varve.Merge(varve.Stream{Nodes: b.nodes, Edges: b.edges})
+	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })
+	sort.Slice(s.Edges, func(i, j int) bool { return s.Edges[i].ID < s.Edges[j].ID })
+	return s
+}
 
-	edges := make([]varve.EdgeRecord, 0, len(b.edges))
-	for _, e := range b.edges {
-		e.ValidFrom = b.edgeVF[e.ID]
-		edges = append(edges, e)
+// result finalises the builder into an AssembleResult.
+func (b *builder) result() AssembleResult {
+	res := AssembleResult{Stream: b.Stream(), Fallbacks: b.fallbacks, ValidFrom: b.earliest}
+	if res.ValidFrom.IsZero() {
+		res.ValidFrom = b.now
+		res.Fallback = true
 	}
-	sort.Slice(edges, func(i, j int) bool { return edges[i].ID < edges[j].ID })
-
-	return varve.Stream{Nodes: nodes, Edges: edges}
+	return res
 }
 
 // Assemble maps every predicate list of every element of preds into the
@@ -295,7 +265,7 @@ func Assemble(ctx context.Context, preds []assembler.IngestPredicates, guard val
 		b.mapCertifyScorecard(p.CertifyScorecard)
 		b.mapCertifyLegal(p.CertifyLegal)
 	}
-	return AssembleResult{Stream: b.Stream(), Fallbacks: b.fallbacks}
+	return b.result()
 }
 
 func deref(s *string) string {

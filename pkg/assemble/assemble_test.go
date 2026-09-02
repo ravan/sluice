@@ -491,3 +491,36 @@ func TestValidFromDeterministicAcrossRuns(t *testing.T) {
 		t.Errorf("valid_from not deterministic across runs\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
 }
+
+func TestResultDocumentValidFrom(t *testing.T) {
+	t1 := time.Date(2022, 6, 1, 0, 0, 0, 0, time.UTC)
+	t0 := time.Date(2021, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	b := newBuilder(validtime.Default(), testNow)
+	b.beginAssertion(&t1)
+	b.beginAssertion(nil) // falls back
+	b.beginAssertion(&t0)
+	res := b.result()
+	if !res.ValidFrom.Equal(t0) {
+		t.Errorf("ValidFrom = %v, want %v (earliest accepted native time)", res.ValidFrom, t0)
+	}
+	if res.Fallback {
+		t.Errorf("Fallback = true, want false (a native time was accepted)")
+	}
+	if res.Fallbacks != 1 {
+		t.Errorf("Fallbacks = %d, want 1", res.Fallbacks)
+	}
+
+	b2 := newBuilder(validtime.Default(), testNow)
+	b2.beginAssertion(nil)
+	res2 := b2.result()
+	if !res2.ValidFrom.Equal(testNow) || !res2.Fallback {
+		t.Errorf("all-fallback result = {ValidFrom %v, Fallback %v}, want {%v, true}", res2.ValidFrom, res2.Fallback, testNow)
+	}
+
+	b3 := newBuilder(validtime.Default(), testNow)
+	res3 := b3.result()
+	if !res3.ValidFrom.Equal(testNow) || !res3.Fallback {
+		t.Errorf("no-assertion result = {ValidFrom %v, Fallback %v}, want {%v, true}", res3.ValidFrom, res3.Fallback, testNow)
+	}
+}
