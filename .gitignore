@@ -8,7 +8,7 @@
 
 # Editor / OS
 .DS_Store
-/.agentenv
+/.hats
 /docs/plans
 /docs/*spec.md
 /docs/sluice-spec.md
