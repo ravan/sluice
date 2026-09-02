@@ -1,6 +1,6 @@
 # Corpus provenance
 
-The `*.json` fixtures in `internal/assemble/testdata/corpus/` are copied verbatim
+The `*.json` fixtures in `pkg/assemble/testdata/corpus/` are copied verbatim
 from GUAC v1.1.0:
 
 - Source: `github.com/guacsec/guac@v1.1.0`

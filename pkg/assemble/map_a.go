@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/guacsec/guac/pkg/assembler"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // fmtTime renders a required timestamp as a plain RFC3339 string property

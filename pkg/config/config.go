@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ravan/sluice/internal/validtime"
+	"github.com/ravan/sluice/pkg/validtime"
 	"gopkg.in/yaml.v3"
 )
 

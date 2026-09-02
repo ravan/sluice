@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ravan/sluice/internal/config"
-	"github.com/ravan/sluice/internal/guacseam"
-	"github.com/ravan/sluice/internal/pipeline"
-	"github.com/ravan/sluice/internal/validtime"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/guacseam"
+	"github.com/ravan/sluice/pkg/pipeline"
+	"github.com/ravan/sluice/pkg/validtime"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 const fixtureDir = "../../testdata/sboms"

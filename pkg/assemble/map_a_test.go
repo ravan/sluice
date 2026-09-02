@@ -6,7 +6,7 @@ import (
 
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 func countLabel(s varve.Stream, label varve.NodeLabel) int {

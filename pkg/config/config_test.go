@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ravan/sluice/internal/validtime"
+	"github.com/ravan/sluice/pkg/validtime"
 )
 
 func TestLoadValid(t *testing.T) {

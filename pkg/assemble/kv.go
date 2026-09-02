@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // hashParts returns the sha256 hex of parts joined by the unit separator

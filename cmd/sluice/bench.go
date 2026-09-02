@@ -9,10 +9,10 @@ import (
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/spf13/cobra"
 
-	"github.com/ravan/sluice/internal/assemble"
-	"github.com/ravan/sluice/internal/guacseam"
-	"github.com/ravan/sluice/internal/validtime"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/assemble"
+	"github.com/ravan/sluice/pkg/guacseam"
+	"github.com/ravan/sluice/pkg/validtime"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // Reference throughput rates, quoted from the spec — never guessed. Only

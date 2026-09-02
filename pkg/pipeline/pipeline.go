@@ -11,11 +11,11 @@ import (
 
 	"github.com/guacsec/guac/pkg/assembler"
 
-	"github.com/ravan/sluice/internal/assemble"
-	"github.com/ravan/sluice/internal/config"
-	"github.com/ravan/sluice/internal/guacseam"
-	"github.com/ravan/sluice/internal/validtime"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/assemble"
+	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/guacseam"
+	"github.com/ravan/sluice/pkg/validtime"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // Sink is the consumer-side seam the pipeline writes through — the run's one

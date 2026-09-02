@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ravan/sluice/internal/config"
+	"github.com/ravan/sluice/pkg/config"
 )
 
 func TestSourcesFromConfig(t *testing.T) {

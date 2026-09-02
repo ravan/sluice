@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 func TestHashPartsInjective(t *testing.T) {

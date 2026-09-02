@@ -6,7 +6,7 @@ import (
 
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 var fixedTime = time.Date(2023, 5, 6, 7, 8, 9, 0, time.UTC)

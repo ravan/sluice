@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/guacsec/guac/pkg/assembler"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 func formatFloat(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }

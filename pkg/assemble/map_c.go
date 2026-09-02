@@ -2,7 +2,7 @@ package assemble
 
 import (
 	"github.com/guacsec/guac/pkg/assembler"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 func (b *builder) mapCertifyBad(bads []assembler.CertifyBadIngest) {

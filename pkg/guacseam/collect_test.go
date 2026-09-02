@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/guacsec/guac/pkg/assembler"
-	"github.com/ravan/sluice/internal/guacseam"
+	"github.com/ravan/sluice/pkg/guacseam"
 )
 
 func TestCollectFilesParsesFixture(t *testing.T) {

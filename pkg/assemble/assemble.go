@@ -9,8 +9,8 @@ import (
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
 	"github.com/guacsec/guac/pkg/assembler/helpers"
-	"github.com/ravan/sluice/internal/validtime"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/validtime"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // builder accumulates the flattened graph for a set of documents, deduplicating

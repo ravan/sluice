@@ -9,8 +9,8 @@ import (
 
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
-	"github.com/ravan/sluice/internal/validtime"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/validtime"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 func ptr(s string) *string { return &s }

@@ -3,7 +3,7 @@ package assemble
 import (
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // pkgOrSrcSubject resolves the PkgVersion id (or SrcName id) of whichever

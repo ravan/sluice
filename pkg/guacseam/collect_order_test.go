@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/guacsec/guac/pkg/assembler"
-	"github.com/ravan/sluice/internal/guacseam"
+	"github.com/ravan/sluice/pkg/guacseam"
 )
 
 // orderFixtureDir writes a directory whose lexically FIRST document is by far the

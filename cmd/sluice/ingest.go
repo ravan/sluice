@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ravan/sluice/internal/config"
-	"github.com/ravan/sluice/internal/pipeline"
-	"github.com/ravan/sluice/internal/varve"
+	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/pipeline"
+	"github.com/ravan/sluice/pkg/varve"
 )
 
 // ingestFlags carries the shared persistent flag values of the `ingest` command.
