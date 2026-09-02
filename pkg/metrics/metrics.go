@@ -14,6 +14,8 @@ type Metrics struct {
 	fallbacks prometheus.Counter
 	retries   prometheus.Counter
 	expansion prometheus.Counter
+	decorated prometheus.Counter
+	decFailed prometheus.Counter
 }
 
 func New() *Metrics {
@@ -33,8 +35,14 @@ func New() *Metrics {
 	expansion := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "sluice_expansion_documents_total",
 	})
+	decorated := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sluice_documents_decorated_total",
+	})
+	decFailed := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sluice_documents_decorate_failed_total",
+	})
 	// safe: fresh registry, no possible duplicate
-	reg.MustRegister(documents, records, fallbacks, retries, expansion)
+	reg.MustRegister(documents, records, fallbacks, retries, expansion, decorated, decFailed)
 	return &Metrics{
 		reg:       reg,
 		documents: documents,
@@ -42,6 +50,8 @@ func New() *Metrics {
 		fallbacks: fallbacks,
 		retries:   retries,
 		expansion: expansion,
+		decorated: decorated,
+		decFailed: decFailed,
 	}
 }
 
@@ -76,4 +86,12 @@ func (m *Metrics) SinkRetry() {
 
 func (m *Metrics) ExpansionDocuments(n int) {
 	m.expansion.Add(float64(n))
+}
+
+func (m *Metrics) DocumentDecorated() {
+	m.decorated.Inc()
+}
+
+func (m *Metrics) DocumentDecorateFailed() {
+	m.decFailed.Inc()
 }

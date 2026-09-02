@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/guacsec/guac/pkg/assembler"
@@ -157,5 +158,49 @@ func TestCorpusParity(t *testing.T) {
 		if n := got.Nodes[string(band.label)]; n < band.lo || n > band.hi {
 			t.Errorf("%s count %d outside sanity band [%d, %d]", band.label, n, band.lo, band.hi)
 		}
+	}
+}
+
+// sortByID puts a merged stream into the id order Assemble emits.
+func sortByID(s varve.Stream) varve.Stream {
+	sort.Slice(s.Nodes, func(i, j int) bool { return s.Nodes[i].ID < s.Nodes[j].ID })
+	sort.Slice(s.Edges, func(i, j int) bool { return s.Edges[i].ID < s.Edges[j].ID })
+	return s
+}
+
+// TestPerDocumentMergeEqualsBatched pins the pipeline's one structural promise:
+// assembling each document alone and then varve.Merge-ing the results gives the
+// exact bytes one batched Assemble over every predicate gives.
+func TestPerDocumentMergeEqualsBatched(t *testing.T) {
+	ctx := context.Background()
+
+	var all []assembler.IngestPredicates
+	var perDoc []varve.Stream
+	_, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: corpusDir}},
+		func(_ context.Context, p guacseam.Parsed) error {
+			all = append(all, p.Preds...)
+			perDoc = append(perDoc, Assemble(ctx, p.Preds, validtime.Default(), testNow).Stream)
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(perDoc) < 2 {
+		t.Fatalf("corpus yielded %d documents, need at least 2 for a meaningful merge", len(perDoc))
+	}
+
+	batched := Assemble(ctx, all, validtime.Default(), testNow).Stream
+	merged := sortByID(varve.Merge(perDoc...))
+
+	var b1, b2 bytes.Buffer
+	if err := varve.WriteNDJSON(&b1, batched); err != nil {
+		t.Fatalf("WriteNDJSON batched: %v", err)
+	}
+	if err := varve.WriteNDJSON(&b2, merged); err != nil {
+		t.Fatalf("WriteNDJSON merged: %v", err)
+	}
+	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
+		t.Errorf("per-document-then-Merge differs from batched Assemble (%d vs %d bytes; %d/%d vs %d/%d records)",
+			b1.Len(), b2.Len(), len(batched.Nodes), len(batched.Edges), len(merged.Nodes), len(merged.Edges))
 	}
 }

@@ -399,10 +399,12 @@ func (s *flakySink) Ingest(_ context.Context, _ varve.Stream) (varve.Receipt, er
 }
 
 type countingObserver struct {
-	mu       sync.Mutex
-	ingested int
-	skipped  int
-	failed   int
+	mu             sync.Mutex
+	ingested       int
+	skipped        int
+	failed         int
+	decorated      int
+	decorateFailed int
 }
 
 func (o *countingObserver) DocumentIngested()         { o.mu.Lock(); o.ingested++; o.mu.Unlock() }
@@ -411,6 +413,8 @@ func (o *countingObserver) DocumentFailed()           { o.mu.Lock(); o.failed++;
 func (o *countingObserver) RecordsEmitted(_, _ int64) {}
 func (o *countingObserver) FallbacksCounted(_ int)    {}
 func (o *countingObserver) ExpansionDocuments(_ int)  {}
+func (o *countingObserver) DocumentDecorated()        { o.mu.Lock(); o.decorated++; o.mu.Unlock() }
+func (o *countingObserver) DocumentDecorateFailed()   { o.mu.Lock(); o.decorateFailed++; o.mu.Unlock() }
 
 func TestRunPollContinuesAfterSinkFailure(t *testing.T) {
 	dir := t.TempDir()

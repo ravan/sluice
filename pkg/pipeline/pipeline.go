@@ -2,14 +2,14 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"time"
-
-	"github.com/guacsec/guac/pkg/assembler"
 
 	"github.com/ravan/sluice/pkg/assemble"
 	"github.com/ravan/sluice/pkg/config"
@@ -37,15 +37,20 @@ type Receipt struct {
 	Expanded           int
 	ExpansionBudget    int
 	ExpansionExhausted bool
+	Decorated          int             // documents that passed every decorator (0 when none are configured)
+	DecorateFailed     []DecorateError // documents a decorator rejected; skipped, never silent
 }
 
 // String renders the receipt the one-shot CLI prints.
 func (r Receipt) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "documents=%d nodes=%d edges=%d transactions=%d basis=%d skipped=%d fallbacks=%d expanded=%d",
-		r.Documents, r.Nodes, r.Edges, r.Transactions, r.Basis, len(r.Skipped), r.Fallbacks, r.Expanded)
+	fmt.Fprintf(&b, "documents=%d nodes=%d edges=%d transactions=%d basis=%d skipped=%d fallbacks=%d expanded=%d decorated=%d decorate_failed=%d",
+		r.Documents, r.Nodes, r.Edges, r.Transactions, r.Basis, len(r.Skipped), r.Fallbacks, r.Expanded, r.Decorated, len(r.DecorateFailed))
 	for _, f := range r.Skipped {
 		fmt.Fprintf(&b, "\n  skipped %s: %v", f.Source, f.Err)
+	}
+	for _, f := range r.DecorateFailed {
+		fmt.Fprintf(&b, "\n  decorate failed %s: %v", f.Source, f.Err)
 	}
 	if r.ExpansionExhausted {
 		fmt.Fprintf(&b, "\n  expansion budget %d reached; some transitive dependencies were not collected", r.ExpansionBudget)
@@ -61,6 +66,8 @@ type Observer interface {
 	RecordsEmitted(nodes, edges int64)
 	FallbacksCounted(n int)
 	ExpansionDocuments(n int)
+	DocumentDecorated()
+	DocumentDecorateFailed()
 }
 
 type noopObserver struct{}
@@ -71,13 +78,16 @@ func (noopObserver) DocumentFailed()           {}
 func (noopObserver) RecordsEmitted(_, _ int64) {}
 func (noopObserver) FallbacksCounted(_ int)    {}
 func (noopObserver) ExpansionDocuments(_ int)  {}
+func (noopObserver) DocumentDecorated()        {}
+func (noopObserver) DocumentDecorateFailed()   {}
 
 // Deps are the injected I/O/clock/observability dependencies (the core stays pure).
 type Deps struct {
-	Sink     Sink             // required
-	Observer Observer         // nil ⇒ noopObserver
-	Now      func() time.Time // nil ⇒ func() time.Time { return time.Now().UTC() }
-	Logger   *slog.Logger     // nil ⇒ slog over io.Discard
+	Sink       Sink             // required
+	Observer   Observer         // nil ⇒ noopObserver
+	Now        func() time.Time // nil ⇒ func() time.Time { return time.Now().UTC() }
+	Logger     *slog.Logger     // nil ⇒ slog over io.Discard
+	Decorators []Decorator      // run in order; each sees the stream the previous ones extended
 }
 
 // sourcesFromConfig maps configured receivers into a guacseam.Sources (Scan and
@@ -108,13 +118,18 @@ func anyPolling(r config.Receivers) bool {
 		(r.GCS != nil && r.GCS.Poll > 0)
 }
 
-// Run builds the collect→assemble→sink pipeline from cfg and runs it. It builds a
-// collector per configured receiver (polling when any receiver's Poll>0, else one
-// pass) and uses cfg.Processors.ValidTime; the caller supplies the Sink via deps.
-// Returns the cumulative Receipt (the daemon logs it at shutdown; the one-shot
-// prints it). A one-pass run batches every document into a single assemble +
-// sink call; poll mode ingests per document. A one-pass sink failure is
-// returned; a poll-mode sink failure is logged+counted and polling continues.
+// Run builds the collect→assemble→decorate→sink pipeline from cfg and runs it.
+// It builds a collector per configured receiver (polling when any receiver's
+// Poll>0, else one pass) and uses cfg.Processors.ValidTime; the caller supplies
+// the Sink and any Decorators via deps. Every document (receiver or expansion,
+// in both modes) is assembled alone, then each Decorator extends its stream. A
+// decorator error skips that document, counts it in Receipt.DecorateFailed and
+// the run continues. Poll mode sinks each document's stream at once. A one-pass
+// run merges every document's stream (varve.Merge: content-derived ids make
+// this equal to one batched assembly) and sinks ONCE, so it stays one
+// transaction. Returns the cumulative Receipt (the daemon logs it at shutdown;
+// the one-shot prints it). A one-pass sink failure is returned; a poll-mode
+// sink failure is logged+counted and polling continues.
 func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	if cfg.Receivers.Files == nil && cfg.Receivers.OCI == nil && cfg.Receivers.S3 == nil && cfg.Receivers.GCS == nil {
 		return Receipt{}, fmt.Errorf("pipeline: at least one receiver is required")
@@ -141,10 +156,51 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		rec.ExpansionBudget = expandCfg.MaxDocs
 	}
 
-	ingestStream := func(ctx context.Context, source string, res assemble.AssembleResult) error {
+	// prepare assembles one document and runs the decorator chain over its
+	// stream. ok=false means a decorator rejected it: recorded, counted, skipped.
+	prepare := func(ctx context.Context, p guacseam.Parsed) (varve.Stream, bool) {
+		t := now()
+		res := assemble.Assemble(ctx, p.Preds, guard, t)
 		rec.Fallbacks += res.Fallbacks
 		observer.FallbacksCounted(res.Fallbacks)
-		r, err := deps.Sink.Ingest(ctx, res.Stream)
+		if len(deps.Decorators) == 0 {
+			return res.Stream, true
+		}
+		var raw []byte
+		if p.Doc != nil {
+			raw = p.Doc.Blob
+		}
+		sum := sha256.Sum256(raw)
+		in := DecorateInput{
+			Raw:       raw,
+			Digest:    hex.EncodeToString(sum[:]),
+			Source:    p.Source,
+			Origin:    p.Origin,
+			Doc:       p.Doc,
+			Preds:     p.Preds,
+			Records:   res.Stream,
+			ValidFrom: res.ValidFrom,
+			Fallback:  res.Fallback,
+			Now:       t,
+		}
+		for _, d := range deps.Decorators {
+			extra, err := d.Decorate(ctx, in)
+			if err != nil {
+				de := DecorateError{Source: p.Source, Digest: in.Digest, Err: err}
+				rec.DecorateFailed = append(rec.DecorateFailed, de)
+				observer.DocumentDecorateFailed()
+				logger.Warn("document rejected by decorator", "source", p.Source, "digest", in.Digest, "error", err)
+				return varve.Stream{}, false
+			}
+			in.Records = varve.Merge(in.Records, extra)
+		}
+		rec.Decorated++
+		observer.DocumentDecorated()
+		return in.Records, true
+	}
+
+	ingestStream := func(ctx context.Context, source string, s varve.Stream) error {
+		r, err := deps.Sink.Ingest(ctx, s)
 		if err != nil {
 			var ie *varve.IngestError
 			if errors.As(err, &ie) {
@@ -154,9 +210,8 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			return err
 		}
 		fold(&rec, r)
-		observer.RecordsEmitted(int64(len(res.Stream.Nodes)), int64(len(res.Stream.Edges)))
-		logger.Info("stream ingested", "source", source,
-			"nodes", len(res.Stream.Nodes), "edges", len(res.Stream.Edges))
+		observer.RecordsEmitted(int64(len(s.Nodes)), int64(len(s.Edges)))
+		logger.Info("stream ingested", "source", source, "nodes", len(s.Nodes), "edges", len(s.Edges))
 		return nil
 	}
 
@@ -177,37 +232,47 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		}
 	}
 
-	// A one-shot pass batches every document (and expansion document) into ONE
-	// assemble + ONE sink call: cross-document duplicates dedup away before the
-	// wire and the run pays one transaction instead of one per document.
-	// Deterministic ids make the batch replay-identical to per-document ingest
-	// (§2.6). Poll mode has no end-of-pass flush point, so it keeps the
-	// per-document path.
-	var batch []assembler.IngestPredicates
+	// A one-shot pass merges every document's (and expansion document's)
+	// stream into ONE sink call: cross-document duplicates dedup away before
+	// the wire and the run pays one transaction instead of one per document.
+	// Deterministic ids make the merge replay-identical to per-document ingest
+	// (§2.6). Poll mode has no end-of-pass flush point, so it sinks per document.
+	var batch []varve.Stream
 	var batched int
 	var fn guacseam.DocumentFunc
 	if oneShot {
 		fn = func(ctx context.Context, p guacseam.Parsed) error {
-			batch = append(batch, p.Preds...)
+			s, ok := prepare(ctx, p)
+			if !ok {
+				return nil // rejected by a decorator: counted, skipped, no expansion
+			}
+			batch = append(batch, s)
 			batched++
-			expand(ctx, p.Source, p.Purls, func(_ context.Context, ep guacseam.Parsed) error {
-				batch = append(batch, ep.Preds...)
+			expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
+				if es, ok := prepare(ctx, ep); ok {
+					batch = append(batch, es)
+				}
 				return nil // best-effort: an expansion doc never aborts expansion or the run
 			})
 			return nil
 		}
 	} else {
-		ingestOne := func(ctx context.Context, source string, preds []assembler.IngestPredicates) error {
-			return ingestStream(ctx, source, assemble.Assemble(ctx, preds, guard, now()))
-		}
 		fn = func(ctx context.Context, p guacseam.Parsed) error {
-			if err := ingestOne(ctx, p.Source, p.Preds); err != nil {
+			s, ok := prepare(ctx, p)
+			if !ok {
+				return nil // rejected by a decorator: counted, skipped, no expansion
+			}
+			if err := ingestStream(ctx, p.Source, s); err != nil {
 				observer.DocumentFailed()
 				return nil // poll mode: a sink failure is logged+counted and polling continues
 			}
 			observer.DocumentIngested()
 			expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
-				if err := ingestOne(ctx, ep.Source, ep.Preds); err != nil {
+				es, ok := prepare(ctx, ep)
+				if !ok {
+					return nil
+				}
+				if err := ingestStream(ctx, ep.Source, es); err != nil {
 					observer.DocumentFailed()
 				}
 				return nil // best-effort: an expansion doc never aborts expansion or the run
@@ -228,9 +293,8 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	if err != nil {
 		return rec, fmt.Errorf("running receivers: %w", err)
 	}
-	if batched > 0 {
-		res := assemble.Assemble(ctx, batch, guard, now())
-		if err := ingestStream(ctx, "batch", res); err != nil {
+	if len(batch) > 0 {
+		if err := ingestStream(ctx, "batch", varve.Merge(batch...)); err != nil {
 			for i := 0; i < batched; i++ {
 				observer.DocumentFailed()
 			}
