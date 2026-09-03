@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `config.VulnerableCodeProcessor.Hosted`, the one place that names
+  `enrich.SourceVulnerableCode` when building `Policy.Hosted`. `config.Load` and
+  the ingest command each built the same one-entry map by hand.
+
+### Changed
+
+One breaking change. This is a pre-release: there is no compatibility path.
+
+- **Breaking.** `enrich.Claim` has no jurisdiction field, and `Records()` moved
+  off it. `enrich.Policy.Stamp` returns the new `enrich.StampedClaim`, which
+  holds the jurisdiction unexported and exposes it through `Jurisdiction()`.
+  `Stamp` is its only constructor, so an enricher cannot state where its own
+  host sits and the pipeline cannot forget to ask the policy — in v0.5.0 both
+  were doc comments, and both are compile errors now. The `enrich.Enricher`
+  interface is unchanged and still returns `[]Claim`: an enricher that never
+  touched the field needs no edit.
+
+### Internal
+
+Neither item changes an exported name or a behaviour.
+
+- `config.Load` split into one function per stanza — `receiversFrom`,
+  `validTimeFrom`, `enrichFrom`, `expandFrom`, `sinkFrom`, and the shared
+  `parsePoll` the four receivers each had a copy of. Every error string is
+  unchanged and all new functions are unexported; a new stanza now adds a
+  function instead of a branch. Cognitive complexity went 89 → under the limit,
+  and the file's six nested-block findings went to zero.
+- The lint gate widened past the standard set: `bodyclose`, `errorlint`,
+  `gocognit`, `gocritic`, `nestif` and `nolintlint`, with findings uncapped and
+  each rule proved to fire. `gosec` and `revive` stay off, each for a reason
+  written in `.golangci.yml` rather than left as an unexplained gap.
+  `varve.Client.Ingest` (60), `pipeline.Run` (66) and `guacseam.collectWith`
+  (40) are named backlog exclusions carrying their number and their seam — a new
+  complex function in the same file still fails.
+
 ## v0.5.0 — 2026-09-03
 
 ### Added

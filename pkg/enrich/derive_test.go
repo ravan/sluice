@@ -143,7 +143,7 @@ func TestDerive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Derive(varve.Stream{Nodes: tt.nodes})
 			want := slices.Clone(tt.want)
-			slices.SortFunc(want, func(a, b Claim) int { return cmpID(a, b) })
+			slices.SortFunc(want, cmpID)
 			assertClaims(t, got, want)
 		})
 	}
@@ -153,7 +153,7 @@ func TestDerive(t *testing.T) {
 			certifyVuln, fileCollected, certifyLegalBoth, eol, otherMetadata, scorecard, hasSourceAt,
 		}}
 		want := []Claim{certifyVulnClaim, declaredClaim, discoveredClaim, eolClaim, scorecardClaim}
-		slices.SortFunc(want, func(a, b Claim) int { return cmpID(a, b) })
+		slices.SortFunc(want, cmpID)
 		got := Derive(all)
 		assertClaims(t, got, want)
 		for i := 1; i < len(got); i++ {
@@ -183,9 +183,6 @@ func assertClaims(t *testing.T, got, want []Claim) {
 		g, w := got[i], want[i]
 		if g.Source != w.Source || g.Subject != w.Subject {
 			t.Errorf("claim %d = {%s %s}, want {%s %s}", i, g.Source, g.Subject, w.Source, w.Subject)
-		}
-		if g.Jurisdiction != "" {
-			t.Errorf("claim %d jurisdiction = %q, want the zero value: the pipeline stamps it", i, g.Jurisdiction)
 		}
 		if !slices.Equal(g.Also, w.Also) {
 			t.Errorf("claim %d Also = %v, want %v", i, g.Also, w.Also)

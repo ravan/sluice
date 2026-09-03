@@ -38,17 +38,17 @@ func TestClaimID(t *testing.T) {
 
 func TestClaimRecords(t *testing.T) {
 	validFrom := time.Date(2026, 9, 2, 18, 30, 0, 0, time.UTC)
-	c := Claim{
-		Source:       SourceEUVD,
-		Jurisdiction: EU,
-		Subject:      "vuln:cve/cve-2026-12345",
-		Also:         []varve.NodeID{"pkg:v:a"},
-		Fact:         "cvss",
-		Value:        "8.1",
-		Ref:          "EUVD-2026-10001",
-		ValidFrom:    validFrom,
-		FetchedAt:    time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC),
-	}
+	policy := Policy{Sources: []Source{SourceEUVD}}
+	c := policy.Stamp([]Claim{{
+		Source:    SourceEUVD,
+		Subject:   "vuln:cve/cve-2026-12345",
+		Also:      []varve.NodeID{"pkg:v:a"},
+		Fact:      "cvss",
+		Value:     "8.1",
+		Ref:       "EUVD-2026-10001",
+		ValidFrom: validFrom,
+		FetchedAt: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC),
+	}})[0]
 
 	s := c.Records()
 	if len(s.Nodes) != 1 {

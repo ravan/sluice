@@ -161,7 +161,7 @@ func enricherFor(es []enrich.Enricher, src enrich.Source) enrich.Enricher {
 
 // foldClaims merges every claim's records into s, returning the merged stream
 // and how many claims it folded in.
-func foldClaims(s varve.Stream, claims []enrich.Claim) (varve.Stream, int) {
+func foldClaims(s varve.Stream, claims []enrich.StampedClaim) (varve.Stream, int) {
 	if len(claims) == 0 {
 		return s, 0
 	}

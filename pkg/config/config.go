@@ -1,3 +1,5 @@
+// Package config is the validated pipeline definition both front-ends build:
+// the YAML file Load reads, and the flag set the cmd layer assembles.
 package config
 
 import (
@@ -12,6 +14,13 @@ import (
 	"github.com/ravan/sluice/pkg/enrich/vulnerablecode"
 	"github.com/ravan/sluice/pkg/validtime"
 	"gopkg.in/yaml.v3"
+)
+
+// defaultMaxDocs is the per-run expansion budget when a present expand stanza
+// names none. reservedGraphPrefix marks the graph names varve keeps for itself.
+const (
+	defaultMaxDocs      = 500
+	reservedGraphPrefix = "__"
 )
 
 // Config is the validated pipeline definition both front-ends build (§6 inv. 8).
@@ -82,6 +91,12 @@ type EnrichProcessor struct {
 type VulnerableCodeProcessor struct {
 	URL          string
 	Jurisdiction enrich.Jurisdiction
+}
+
+// Hosted is the per-install jurisdiction map ParsePolicy takes. It is the one
+// place that says which source this block configures.
+func (v VulnerableCodeProcessor) Hosted() map[enrich.Source]enrich.Jurisdiction {
+	return map[enrich.Source]enrich.Jurisdiction{enrich.SourceVulnerableCode: v.Jurisdiction}
 }
 
 // ExpandProcessor: in-process deps.dev expansion. DepsDev false ⇒ no expansion.
@@ -193,7 +208,8 @@ type wireVarveSink struct {
 	Graph    string `yaml:"graph"`
 }
 
-// Load parses and validates a pipeline.yaml.
+// Load parses and validates a pipeline.yaml. Each stanza is validated by its
+// own function, so a new stanza adds a function rather than a branch here.
 func Load(r io.Reader) (Config, error) {
 	dec := yaml.NewDecoder(r)
 	dec.KnownFields(true)
@@ -204,173 +220,220 @@ func Load(r io.Reader) (Config, error) {
 	}
 
 	var cfg Config
-
-	if wire.Receivers.Files != nil {
-		if wire.Receivers.Files.Path == "" {
-			return Config{}, fmt.Errorf("config: receivers.files.path is required")
-		}
-		files := FilesReceiver{Path: wire.Receivers.Files.Path}
-		if wire.Receivers.Files.Poll != "" {
-			poll, err := time.ParseDuration(wire.Receivers.Files.Poll)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: receivers.files.poll: %w", err)
-			}
-			if poll <= 0 {
-				return Config{}, fmt.Errorf("config: receivers.files.poll must be > 0")
-			}
-			files.Poll = poll
-		}
-		cfg.Receivers.Files = &files
+	var err error
+	if cfg.Receivers, err = receiversFrom(wire.Receivers); err != nil {
+		return Config{}, err
 	}
-
-	if wire.Receivers.OCI != nil {
-		if len(wire.Receivers.OCI.Refs) == 0 {
-			return Config{}, fmt.Errorf("config: receivers.oci.refs is required")
-		}
-		o := OCIReceiver{Refs: wire.Receivers.OCI.Refs, Registry: wire.Receivers.OCI.Registry, Insecure: wire.Receivers.OCI.Insecure}
-		if wire.Receivers.OCI.Poll != "" {
-			poll, err := time.ParseDuration(wire.Receivers.OCI.Poll)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: receivers.oci.poll: %w", err)
-			}
-			if poll <= 0 {
-				return Config{}, fmt.Errorf("config: receivers.oci.poll must be > 0")
-			}
-			o.Poll = poll
-		}
-		cfg.Receivers.OCI = &o
+	if cfg.Processors.ValidTime, err = validTimeFrom(wire.Processors.ValidTime); err != nil {
+		return Config{}, err
 	}
-
-	if wire.Receivers.S3 != nil {
-		if wire.Receivers.S3.Bucket == "" {
-			return Config{}, fmt.Errorf("config: receivers.s3.bucket is required")
-		}
-		s := S3Receiver{
-			URL:    wire.Receivers.S3.URL,
-			Bucket: wire.Receivers.S3.Bucket,
-			Path:   wire.Receivers.S3.Path,
-			Region: wire.Receivers.S3.Region,
-			Queues: wire.Receivers.S3.Queues,
-		}
-		if wire.Receivers.S3.Poll != "" {
-			poll, err := time.ParseDuration(wire.Receivers.S3.Poll)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: receivers.s3.poll: %w", err)
-			}
-			if poll <= 0 {
-				return Config{}, fmt.Errorf("config: receivers.s3.poll must be > 0")
-			}
-			s.Poll = poll
-		}
-		if s.Poll > 0 && s.Queues == "" {
-			return Config{}, fmt.Errorf("config: receivers.s3.queues is required when poll is set")
-		}
-		cfg.Receivers.S3 = &s
+	if cfg.Processors.Enrich, err = enrichFrom(wire.Processors.Enrich); err != nil {
+		return Config{}, err
 	}
-
-	if wire.Receivers.GCS != nil {
-		if wire.Receivers.GCS.Bucket == "" {
-			return Config{}, fmt.Errorf("config: receivers.gcs.bucket is required")
-		}
-		g := GCSReceiver{Bucket: wire.Receivers.GCS.Bucket}
-		if wire.Receivers.GCS.Poll != "" {
-			poll, err := time.ParseDuration(wire.Receivers.GCS.Poll)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: receivers.gcs.poll: %w", err)
-			}
-			if poll <= 0 {
-				return Config{}, fmt.Errorf("config: receivers.gcs.poll must be > 0")
-			}
-			g.Poll = poll
-		}
-		cfg.Receivers.GCS = &g
+	if cfg.Processors.Expand, err = expandFrom(wire.Processors.Expand); err != nil {
+		return Config{}, err
 	}
-
-	if cfg.Receivers.Files == nil && cfg.Receivers.OCI == nil && cfg.Receivers.S3 == nil && cfg.Receivers.GCS == nil {
-		return Config{}, fmt.Errorf("config: at least one receiver is required")
+	if cfg.Sink, err = sinkFrom(wire.Sink); err != nil {
+		return Config{}, err
 	}
+	return cfg, nil
+}
 
+// parsePoll reads one receiver's poll interval. An absent value is one pass,
+// not an error; a non-positive one is a mistake worth naming. field is the
+// dotted config path, so the error says which stanza was wrong.
+func parsePoll(field, raw string) (time.Duration, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	poll, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s: %w", field, err)
+	}
+	if poll <= 0 {
+		return 0, fmt.Errorf("config: %s must be > 0", field)
+	}
+	return poll, nil
+}
+
+// receiversFrom validates every receiver stanza present. At least one must be.
+func receiversFrom(w wireReceivers) (Receivers, error) {
+	var out Receivers
+	var err error
+	if w.Files != nil {
+		if out.Files, err = filesFrom(*w.Files); err != nil {
+			return Receivers{}, err
+		}
+	}
+	if w.OCI != nil {
+		if out.OCI, err = ociFrom(*w.OCI); err != nil {
+			return Receivers{}, err
+		}
+	}
+	if w.S3 != nil {
+		if out.S3, err = s3From(*w.S3); err != nil {
+			return Receivers{}, err
+		}
+	}
+	if w.GCS != nil {
+		if out.GCS, err = gcsFrom(*w.GCS); err != nil {
+			return Receivers{}, err
+		}
+	}
+	if out.Files == nil && out.OCI == nil && out.S3 == nil && out.GCS == nil {
+		return Receivers{}, fmt.Errorf("config: at least one receiver is required")
+	}
+	return out, nil
+}
+
+func filesFrom(w wireFilesReceiver) (*FilesReceiver, error) {
+	if w.Path == "" {
+		return nil, fmt.Errorf("config: receivers.files.path is required")
+	}
+	poll, err := parsePoll("receivers.files.poll", w.Poll)
+	if err != nil {
+		return nil, err
+	}
+	return &FilesReceiver{Path: w.Path, Poll: poll}, nil
+}
+
+func ociFrom(w wireOCIReceiver) (*OCIReceiver, error) {
+	if len(w.Refs) == 0 {
+		return nil, fmt.Errorf("config: receivers.oci.refs is required")
+	}
+	poll, err := parsePoll("receivers.oci.poll", w.Poll)
+	if err != nil {
+		return nil, err
+	}
+	return &OCIReceiver{Refs: w.Refs, Registry: w.Registry, Insecure: w.Insecure, Poll: poll}, nil
+}
+
+func s3From(w wireS3Receiver) (*S3Receiver, error) {
+	if w.Bucket == "" {
+		return nil, fmt.Errorf("config: receivers.s3.bucket is required")
+	}
+	poll, err := parsePoll("receivers.s3.poll", w.Poll)
+	if err != nil {
+		return nil, err
+	}
+	if poll > 0 && w.Queues == "" {
+		return nil, fmt.Errorf("config: receivers.s3.queues is required when poll is set")
+	}
+	return &S3Receiver{
+		URL:    w.URL,
+		Bucket: w.Bucket,
+		Path:   w.Path,
+		Region: w.Region,
+		Queues: w.Queues,
+		Poll:   poll,
+	}, nil
+}
+
+func gcsFrom(w wireGCSReceiver) (*GCSReceiver, error) {
+	if w.Bucket == "" {
+		return nil, fmt.Errorf("config: receivers.gcs.bucket is required")
+	}
+	poll, err := parsePoll("receivers.gcs.poll", w.Poll)
+	if err != nil {
+		return nil, err
+	}
+	return &GCSReceiver{Bucket: w.Bucket, Poll: poll}, nil
+}
+
+// validTimeFrom starts from validtime.Default() and overrides what the stanza
+// names. An absent stanza is the default guard.
+func validTimeFrom(w *wireValidTime) (ValidTimeProcessor, error) {
 	def := validtime.Default()
 	vt := ValidTimeProcessor{Floor: def.Floor, FutureSkew: def.Skew}
-	if wire.Processors.ValidTime != nil {
-		if wire.Processors.ValidTime.Floor != "" {
-			floor, err := time.Parse(time.RFC3339, wire.Processors.ValidTime.Floor)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: processors.valid_time.floor: %w", err)
-			}
-			vt.Floor = floor.UTC()
-		}
-		if wire.Processors.ValidTime.FutureSkew != "" {
-			skew, err := time.ParseDuration(wire.Processors.ValidTime.FutureSkew)
-			if err != nil {
-				return Config{}, fmt.Errorf("config: processors.valid_time.future_skew: %w", err)
-			}
-			if skew < 0 {
-				return Config{}, fmt.Errorf("config: processors.valid_time.future_skew must be >= 0")
-			}
-			vt.FutureSkew = skew
-		}
+	if w == nil {
+		return vt, nil
 	}
-	cfg.Processors.ValidTime = vt
+	if w.Floor != "" {
+		floor, err := time.Parse(time.RFC3339, w.Floor)
+		if err != nil {
+			return ValidTimeProcessor{}, fmt.Errorf("config: processors.valid_time.floor: %w", err)
+		}
+		vt.Floor = floor.UTC()
+	}
+	if w.FutureSkew != "" {
+		skew, err := time.ParseDuration(w.FutureSkew)
+		if err != nil {
+			return ValidTimeProcessor{}, fmt.Errorf("config: processors.valid_time.future_skew: %w", err)
+		}
+		if skew < 0 {
+			return ValidTimeProcessor{}, fmt.Errorf("config: processors.valid_time.future_skew must be >= 0")
+		}
+		vt.FutureSkew = skew
+	}
+	return vt, nil
+}
 
-	cfg.Processors.Enrich = EnrichProcessor{
+// enrichFrom starts from the default endpoints and overrides what the stanza
+// names. An absent stanza is the zero policy: nothing enriches.
+func enrichFrom(w *wireEnrich) (EnrichProcessor, error) {
+	out := EnrichProcessor{
 		EUVDURL:        euvd.DefaultURL,
 		VulnerableCode: VulnerableCodeProcessor{URL: vulnerablecode.DefaultURL, Jurisdiction: enrich.US},
 	}
-	if e := wire.Processors.Enrich; e != nil {
-		if e.VulnerableCode != nil {
-			if e.VulnerableCode.URL != "" {
-				cfg.Processors.Enrich.VulnerableCode.URL = e.VulnerableCode.URL
+	if w == nil {
+		return out, nil
+	}
+	if vc := w.VulnerableCode; vc != nil {
+		if vc.URL != "" {
+			out.VulnerableCode.URL = vc.URL
+		}
+		if vc.Jurisdiction != "" {
+			j, err := enrich.ParseJurisdiction(vc.Jurisdiction)
+			if err != nil {
+				return EnrichProcessor{}, fmt.Errorf("config: processors.enrich.vulnerablecode.jurisdiction: %w", err)
 			}
-			if e.VulnerableCode.Jurisdiction != "" {
-				j, jerr := enrich.ParseJurisdiction(e.VulnerableCode.Jurisdiction)
-				if jerr != nil {
-					return Config{}, fmt.Errorf("config: processors.enrich.vulnerablecode.jurisdiction: %w", jerr)
-				}
-				cfg.Processors.Enrich.VulnerableCode.Jurisdiction = j
-			}
-		}
-		hosted := map[enrich.Source]enrich.Jurisdiction{
-			enrich.SourceVulnerableCode: cfg.Processors.Enrich.VulnerableCode.Jurisdiction,
-		}
-		policy, perr := enrich.ParsePolicy(e.Sources, e.EUOnly, hosted)
-		if perr != nil {
-			return Config{}, fmt.Errorf("config: processors.enrich.sources: %w", perr)
-		}
-		cfg.Processors.Enrich.Policy = policy
-		if e.EUVD != nil && e.EUVD.URL != "" {
-			cfg.Processors.Enrich.EUVDURL = e.EUVD.URL
+			out.VulnerableCode.Jurisdiction = j
 		}
 	}
+	policy, err := enrich.ParsePolicy(w.Sources, w.EUOnly, out.VulnerableCode.Hosted())
+	if err != nil {
+		return EnrichProcessor{}, fmt.Errorf("config: processors.enrich.sources: %w", err)
+	}
+	out.Policy = policy
+	if w.EUVD != nil && w.EUVD.URL != "" {
+		out.EUVDURL = w.EUVD.URL
+	}
+	return out, nil
+}
 
-	if wire.Processors.Expand != nil {
-		expand := ExpandProcessor{DepsDev: wire.Processors.Expand.DepsDev}
-		switch {
-		case wire.Processors.Expand.MaxDocs == nil:
-			expand.MaxDocs = 500
-		case *wire.Processors.Expand.MaxDocs <= 0:
-			return Config{}, fmt.Errorf("config: processors.expand.max_docs must be > 0")
-		default:
-			expand.MaxDocs = *wire.Processors.Expand.MaxDocs
-		}
-		cfg.Processors.Expand = expand
+// expandFrom reads the expansion budget. An absent stanza is no expansion; an
+// absent max_docs inside a present stanza is defaultMaxDocs.
+func expandFrom(w *wireExpand) (ExpandProcessor, error) {
+	if w == nil {
+		return ExpandProcessor{}, nil
 	}
+	out := ExpandProcessor{DepsDev: w.DepsDev, MaxDocs: defaultMaxDocs}
+	switch {
+	case w.MaxDocs == nil:
+	case *w.MaxDocs <= 0:
+		return ExpandProcessor{}, fmt.Errorf("config: processors.expand.max_docs must be > 0")
+	default:
+		out.MaxDocs = *w.MaxDocs
+	}
+	return out, nil
+}
 
-	if wire.Sink.Varve == nil {
-		return Config{}, fmt.Errorf("config: sink.varve is required")
+// sinkFrom validates the one required stanza: there is nowhere else to write.
+func sinkFrom(w wireSink) (Sink, error) {
+	if w.Varve == nil {
+		return Sink{}, fmt.Errorf("config: sink.varve is required")
 	}
-	if wire.Sink.Varve.Addr == "" {
-		return Config{}, fmt.Errorf("config: sink.varve.addr is required")
+	if w.Varve.Addr == "" {
+		return Sink{}, fmt.Errorf("config: sink.varve.addr is required")
 	}
-	if wire.Sink.Varve.TokenEnv == "" {
-		return Config{}, fmt.Errorf("config: sink.varve.token_env is required")
+	if w.Varve.TokenEnv == "" {
+		return Sink{}, fmt.Errorf("config: sink.varve.token_env is required")
 	}
-	if strings.HasPrefix(wire.Sink.Varve.Graph, "__") {
-		return Config{}, fmt.Errorf("config: sink.varve.graph %q: names starting with \"__\" are reserved", wire.Sink.Varve.Graph)
+	if strings.HasPrefix(w.Varve.Graph, reservedGraphPrefix) {
+		return Sink{}, fmt.Errorf("config: sink.varve.graph %q: names starting with %q are reserved",
+			w.Varve.Graph, reservedGraphPrefix)
 	}
-	cfg.Sink.Varve = VarveSink{Addr: wire.Sink.Varve.Addr, TokenEnv: wire.Sink.Varve.TokenEnv, Graph: wire.Sink.Varve.Graph}
-
-	return cfg, nil
+	return Sink{Varve: VarveSink{Addr: w.Varve.Addr, TokenEnv: w.Varve.TokenEnv, Graph: w.Varve.Graph}}, nil
 }
 
 // LoadFile opens path then calls Load.

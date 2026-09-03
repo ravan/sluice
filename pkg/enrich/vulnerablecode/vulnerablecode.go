@@ -33,8 +33,11 @@ const UserAgent = "VCIO_API_AGENT"
 const affectedPath = "api/v3/affected-by-advisories"
 
 // cvssPrefix is what a scoring system's name starts with when its value is a
-// CVSS base score.
-const cvssPrefix = "cvssv"
+// CVSS base score. epssSystem is the one whose value is an EPSS probability.
+const (
+	cvssPrefix = "cvssv"
+	epssSystem = "epss"
+)
 
 // ErrStatus is returned when the API answers with anything but 200.
 var ErrStatus = errors.New("vulnerablecode: unexpected status")
@@ -191,7 +194,7 @@ func vulnFacts(a advisory) []enrich.FactValue {
 		)
 	}
 	for _, s := range a.Severities {
-		if s.ScoringSystem == "epss" {
+		if s.ScoringSystem == epssSystem {
 			facts = append(facts, enrich.FactValue{Fact: enrich.FactEPSS, Value: s.Value})
 			break
 		}

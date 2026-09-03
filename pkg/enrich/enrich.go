@@ -121,13 +121,15 @@ func (p Policy) JurisdictionOf(s Source) Jurisdiction {
 	return Other
 }
 
-// Stamp sets Jurisdiction on every claim from JurisdictionOf, and returns the
-// same slice. The pipeline is the only caller; an enricher never sets the field.
-func (p Policy) Stamp(claims []Claim) []Claim {
-	for i := range claims {
-		claims[i].Jurisdiction = p.JurisdictionOf(claims[i].Source)
+// Stamp places every claim in the jurisdiction JurisdictionOf gives its source.
+// It is the only constructor of StampedClaim, so an enricher cannot state where
+// its own host sits.
+func (p Policy) Stamp(claims []Claim) []StampedClaim {
+	out := make([]StampedClaim, 0, len(claims))
+	for _, c := range claims {
+		out = append(out, StampedClaim{Claim: c, jurisdiction: p.JurisdictionOf(c.Source)})
 	}
-	return claims
+	return out
 }
 
 // Allows reports whether s may run: listed, and under EUOnly sitting in the EU.

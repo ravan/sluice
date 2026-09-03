@@ -252,7 +252,7 @@ func TestEnrichFixedBy(t *testing.T) {
 	}
 }
 
-func TestEnrichStampsTheClockAndNotTheJurisdiction(t *testing.T) {
+func TestEnrichStampsTheClock(t *testing.T) {
 	claims := enrichAll(t, start(t), stream())
 	if len(claims) == 0 {
 		t.Fatal("no claims")
@@ -260,9 +260,6 @@ func TestEnrichStampsTheClockAndNotTheJurisdiction(t *testing.T) {
 	for i, c := range claims {
 		if !c.ValidFrom.Equal(now) || !c.FetchedAt.Equal(now) {
 			t.Errorf("claim %d clocks = %s / %s, want both %s", i, c.ValidFrom, c.FetchedAt, now)
-		}
-		if c.Jurisdiction != "" {
-			t.Errorf("claim %d jurisdiction = %q, want the zero value: the pipeline stamps it", i, c.Jurisdiction)
 		}
 		if c.Source != enrich.SourceVulnerableCode {
 			t.Errorf("claim %d source = %q, want %q", i, c.Source, enrich.SourceVulnerableCode)

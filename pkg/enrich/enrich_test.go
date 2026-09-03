@@ -195,7 +195,7 @@ func TestStamp(t *testing.T) {
 	p := Policy{Hosted: map[Source]Jurisdiction{SourceVulnerableCode: EU}}
 	claims := []Claim{
 		{Source: SourceEUVD},
-		{Source: SourceOSV, Jurisdiction: EU}, // deliberately wrong on the way in
+		{Source: SourceOSV},
 		{Source: SourceVulnerableCode},
 	}
 	want := []Jurisdiction{EU, US, EU}
@@ -204,8 +204,8 @@ func TestStamp(t *testing.T) {
 		t.Fatalf("Stamp() returned %d claims, want %d", len(got), len(want))
 	}
 	for i, w := range want {
-		if got[i].Jurisdiction != w {
-			t.Errorf("claim %d jurisdiction = %q, want %q", i, got[i].Jurisdiction, w)
+		if got[i].Jurisdiction() != w {
+			t.Errorf("claim %d jurisdiction = %q, want %q", i, got[i].Jurisdiction(), w)
 		}
 	}
 }

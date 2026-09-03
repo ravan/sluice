@@ -492,8 +492,8 @@ func TestRunPollContinuesAfterSinkFailure(t *testing.T) {
 }
 
 // TestEnrichStampsTheJurisdictionFromThePolicy proves the pipeline, and not the
-// enricher, owns Claim.Jurisdiction: each fake hands back a deliberately wrong
-// value and the sink still sees what the policy says.
+// enricher, decides the source_jurisdiction prop: an enricher returns a Claim,
+// which names no jurisdiction, and the sink sees what the policy says.
 func TestEnrichStampsTheJurisdictionFromThePolicy(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -525,12 +525,11 @@ func TestEnrichStampsTheJurisdictionFromThePolicy(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			wrong := testClaim(tc.source, "cvss", "8.1")
-			wrong.Jurisdiction = enrich.Other
+			c := testClaim(tc.source, "cvss", "8.1")
 			fake := &fakeSink{responses: []response{{}}}
 
 			if _, err := runOneShotPolicy(t, fixtureDir, fake, tc.policy, pipeline.Deps{
-				Enrichers: []enrich.Enricher{&fakeEnricher{source: tc.source, claims: []enrich.Claim{wrong}}},
+				Enrichers: []enrich.Enricher{&fakeEnricher{source: tc.source, claims: []enrich.Claim{c}}},
 			}); err != nil {
 				t.Fatalf("Run: %v", err)
 			}

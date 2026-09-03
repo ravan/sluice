@@ -56,13 +56,12 @@ func (o *fakeObserver) EnrichFailed(source enrich.Source) { o.enrichFailed[strin
 
 func testClaim(source enrich.Source, fact enrich.Fact, value string) enrich.Claim {
 	return enrich.Claim{
-		Source:       source,
-		Jurisdiction: enrich.Jurisdictions[source],
-		Subject:      "vuln:cve/cve-2026-12345",
-		Fact:         fact,
-		Value:        value,
-		ValidFrom:    pipeTestNow,
-		FetchedAt:    pipeTestNow,
+		Source:    source,
+		Subject:   "vuln:cve/cve-2026-12345",
+		Fact:      fact,
+		Value:     value,
+		ValidFrom: pipeTestNow,
+		FetchedAt: pipeTestNow,
 	}
 }
 

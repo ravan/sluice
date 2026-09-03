@@ -57,8 +57,8 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 	if err != nil {
 		return config.Config{}, fmt.Errorf("parsing --vulnerablecode-jurisdiction: %w", err)
 	}
-	hosted := map[enrich.Source]enrich.Jurisdiction{enrich.SourceVulnerableCode: jurisdiction}
-	policy, err := enrich.ParsePolicy(f.enrichSources, f.enrichEUOnly, hosted)
+	vc := config.VulnerableCodeProcessor{URL: f.vcURL, Jurisdiction: jurisdiction}
+	policy, err := enrich.ParsePolicy(f.enrichSources, f.enrichEUOnly, vc.Hosted())
 	if err != nil {
 		return config.Config{}, fmt.Errorf("parsing --enrich: %w", err)
 	}
@@ -69,7 +69,7 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 			Enrich: config.EnrichProcessor{
 				Policy:         policy,
 				EUVDURL:        f.euvdURL,
-				VulnerableCode: config.VulnerableCodeProcessor{URL: f.vcURL, Jurisdiction: jurisdiction},
+				VulnerableCode: vc,
 			},
 			Expand: config.ExpandProcessor{DepsDev: f.expandDepsDev, MaxDocs: f.expandMaxDocs},
 		},

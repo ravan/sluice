@@ -84,18 +84,29 @@ func ParseFact(name string) (Fact, error) {
 	return f, nil
 }
 
-// Claim is one fact from one source about one subject (ADR 0031).
+// Claim is one fact from one source about one subject (ADR 0031). It names no
+// jurisdiction: where a source's host sits is the install's answer, not the
+// enricher's, so a Claim reaches the graph only through Policy.Stamp.
 type Claim struct {
-	Source       Source
-	Jurisdiction Jurisdiction   // set by the pipeline from the policy, never by an enricher
-	Subject      varve.NodeID   // part of the identity
-	Also         []varve.NodeID // further ABOUT targets, not part of the identity
-	Fact         Fact
-	Value        string
-	Ref          string    // an EUVD id, a scanner documentRef; "" writes no prop
-	ValidFrom    time.Time // the source's date for the fact, else FetchedAt
-	FetchedAt    time.Time
+	Source    Source
+	Subject   varve.NodeID   // part of the identity
+	Also      []varve.NodeID // further ABOUT targets, not part of the identity
+	Fact      Fact
+	Value     string
+	Ref       string    // an EUVD id, a scanner documentRef; "" writes no prop
+	ValidFrom time.Time // the source's date for the fact, else FetchedAt
+	FetchedAt time.Time
 }
+
+// StampedClaim is a Claim the policy has placed in a jurisdiction. Policy.Stamp
+// is the only way to build one, and it is the only form that renders records.
+type StampedClaim struct {
+	Claim
+	jurisdiction Jurisdiction
+}
+
+// Jurisdiction is where the policy says this claim's source sits.
+func (c StampedClaim) Jurisdiction() Jurisdiction { return c.jurisdiction }
 
 // ID derives the claim's identity from source, subject, fact and value, so a
 // re-fetch of the same fact replays onto the same node.
@@ -104,11 +115,11 @@ func (c Claim) ID() varve.NodeID {
 }
 
 // Records renders the claim as one node plus one ABOUT edge per subject.
-func (c Claim) Records() varve.Stream {
+func (c StampedClaim) Records() varve.Stream {
 	id := c.ID()
 	props := keepSet([]varve.Prop{
 		{Key: PropSource, Value: varve.Str(string(c.Source))},
-		{Key: PropSourceJurisdiction, Value: varve.Str(string(c.Jurisdiction))},
+		{Key: PropSourceJurisdiction, Value: varve.Str(string(c.jurisdiction))},
 		{Key: PropFetchedAt, Value: varve.Str(fmtTime(c.FetchedAt))},
 		{Key: PropFact, Value: varve.Str(string(c.Fact))},
 		{Key: PropValue, Value: varve.Str(c.Value)},

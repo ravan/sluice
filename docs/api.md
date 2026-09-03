@@ -33,9 +33,9 @@ transaction as the document's Sluice records.
 Enrichers run after assemble and before the decorators, in the order
 `config.Processors.Enrich.Policy.Sources` names — not `Deps.Enrichers` order. A
 policy naming a source no enricher was built for is skipped silently. Each
-enricher sees the claims the previous ones added. The pipeline stamps
-`Claim.Jurisdiction` from the policy at both fold sites, so an enricher never
-sets the field.
+enricher sees the claims the previous ones added. An enricher returns a `Claim`,
+which names no jurisdiction; `Policy.Stamp` turns it into the `StampedClaim` the
+fold sites take, so an enricher cannot state where its own host sits.
 
 ## `pkg/enrich`
 
@@ -48,15 +48,16 @@ sets the field.
 | `ParseJurisdiction(string) (Jurisdiction, error)` | Validates a jurisdiction name read out of config. `ErrUnknownJurisdiction` (wrapped). |
 | `Policy{Sources, EUOnly, Hosted}` | The org's rules. `Sources` is priority order. `Hosted` is the per-install jurisdiction of a source whose host is a deployment choice; it wins over `Jurisdictions`. |
 | `(Policy).JurisdictionOf(Source) Jurisdiction` | `Hosted`, else `Jurisdictions`, else `Other`. A source no table names is `Other`, which `eu_only` refuses: the cap fails closed. |
-| `(Policy).Stamp([]Claim) []Claim` | Sets `Jurisdiction` on every claim from `JurisdictionOf`. The pipeline is the only caller. |
+| `(Policy).Stamp([]Claim) []StampedClaim` | Places every claim in the jurisdiction `JurisdictionOf` gives its source. The only constructor of `StampedClaim`. |
 | `(Policy).Allows(Source) bool` | Listed, and under `EUOnly` sitting in the EU by `JurisdictionOf`. |
 | `(Policy).ScanFlags() guacseam.ScanFlags` | The same policy, gating GUAC's four in-parser scanners. |
-| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. `Jurisdiction` is set by the pipeline from the policy, never by an enricher. |
+| `Claim{Source, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. There is no jurisdiction field: only the policy can supply one. |
+| `StampedClaim` | A `Claim` the policy has placed in a jurisdiction. `Jurisdiction()` reads it; `Records()` renders the node and its `ABOUT` edges. Only `Policy.Stamp` builds one. |
 | `Fact`, `Facts` | The closed set of fact names, including `advisory_id` and `fixed_by`. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
 | `ParseFact(string) (Fact, error)` | Validates a name read off the wire or out of config. `ErrUnknownFact` (wrapped). |
 | `FactValue{Fact, Value}` | One fact paired with the value a source states for it. An enricher builds these before it knows the subject. |
 | `Prop*` constants | The property-key vocabulary of a `Claim` node: `source`, `source_jurisdiction`, `fetched_at`, `fact`, `value`, `ref`, `subject_id`. |
-| `(Claim).ID()`, `(Claim).Records()` | Identity is source, subject, fact, value, so a re-fetch replays onto the same node. `Records` renders one `Claim` node plus one `ABOUT` edge per subject. |
+| `(Claim).ID()`, `(StampedClaim).Records()` | Identity is source, subject, fact, value, so a re-fetch replays onto the same node. `Records` renders one `Claim` node plus one `ABOUT` edge per subject. It sits on `StampedClaim`, so an unstamped claim cannot reach the graph. |
 | `LabelClaim`, `EdgeAbout` | The graph vocabulary enrichment adds. |
 | `Input{Digest, Records, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too. |
 | `Enricher` | `Source() Source`; `Enrich(ctx, Input) ([]Claim, error)`. Must not modify `in.Records`. |
@@ -140,7 +141,7 @@ The only package that calls GUAC behaviour.
 | `Receivers{Files, OCI, S3, GCS}` and the four receiver structs | Absent receiver is `nil`. `Poll == 0` means one pass. |
 | `Processors{ValidTime, Enrich, Expand}` | Guard bounds, enrichment policy, expansion budget. |
 | `EnrichProcessor{Policy, EUVDURL, VulnerableCode}` | The org's `enrich.Policy` plus the endpoints the enrichers this build carries need. Absent block means the zero policy, `euvd.DefaultURL` and `vulnerablecode.DefaultURL` at `us`. |
-| `VulnerableCodeProcessor{URL, Jurisdiction}` | The VulnerableCode endpoint and the jurisdiction of the host it names, from `processors.enrich.vulnerablecode.{url, jurisdiction}`. It becomes `Policy.Hosted`. |
+| `VulnerableCodeProcessor{URL, Jurisdiction}` | The VulnerableCode endpoint and the jurisdiction of the host it names, from `processors.enrich.vulnerablecode.{url, jurisdiction}`. `Hosted()` renders it as the map `ParsePolicy` takes; it is the one place naming `SourceVulnerableCode`. |
 | `Sink{Varve}`, `VarveSink{Addr, TokenEnv, Graph}` | The writer declaration. `pipeline.Run` never reads it; the caller builds the client. |
 
 ## `pkg/validtime`
