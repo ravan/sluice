@@ -1,6 +1,7 @@
 package enrich
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -115,4 +116,34 @@ func propMap(t *testing.T, props []varve.Prop) map[string]string {
 		m[p.Key] = string(s)
 	}
 	return m
+}
+
+func TestParseFact(t *testing.T) {
+	cases := []struct {
+		name    string
+		want    Fact
+		wantErr bool
+	}{
+		{name: "cvss", want: FactCVSS},
+		{name: "advisory_id", want: FactAdvisoryID},
+		{name: "fixed_by", want: FactFixedBy},
+		{name: "severity", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseFact(tc.name)
+			if tc.wantErr {
+				if !errors.Is(err, ErrUnknownFact) {
+					t.Fatalf("ParseFact(%q) error = %v, want errors.Is(ErrUnknownFact)", tc.name, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseFact(%q): %v", tc.name, err)
+			}
+			if got != tc.want {
+				t.Errorf("ParseFact(%q) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
 }

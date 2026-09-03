@@ -121,8 +121,8 @@ func TestClaimsFor(t *testing.T) {
 		if c.Source != enrich.SourceEUVD {
 			t.Errorf("claim %d source = %q, want %q", i, c.Source, enrich.SourceEUVD)
 		}
-		if c.Jurisdiction != enrich.EU {
-			t.Errorf("claim %d jurisdiction = %q, want %q", i, c.Jurisdiction, enrich.EU)
+		if c.Jurisdiction != "" {
+			t.Errorf("claim %d jurisdiction = %q, want the zero value: the pipeline stamps it", i, c.Jurisdiction)
 		}
 		if c.Ref != "EUVD-2024-31700" {
 			t.Errorf("claim %d ref = %q, want %q", i, c.Ref, "EUVD-2024-31700")

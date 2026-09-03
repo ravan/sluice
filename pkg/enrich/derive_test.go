@@ -32,15 +32,14 @@ func TestDerive(t *testing.T) {
 		str("documentRef", "sha256:abc"),
 	)
 	certifyVulnClaim := Claim{
-		Source:       SourceOSV,
-		Jurisdiction: US,
-		Subject:      "pkg:v:a",
-		Also:         []varve.NodeID{"vuln:cve/cve-2024-3094"},
-		Fact:         "affected",
-		Value:        "vuln:cve/cve-2024-3094",
-		Ref:          "sha256:abc",
-		ValidFrom:    validFrom,
-		FetchedAt:    fetched,
+		Source:    SourceOSV,
+		Subject:   "pkg:v:a",
+		Also:      []varve.NodeID{"vuln:cve/cve-2024-3094"},
+		Fact:      "affected",
+		Value:     "vuln:cve/cve-2024-3094",
+		Ref:       "sha256:abc",
+		ValidFrom: validFrom,
+		FetchedAt: fetched,
 	}
 
 	fileCollected := node(assemble.LabelCertifyVuln,
@@ -58,13 +57,12 @@ func TestDerive(t *testing.T) {
 		str("timeScanned", scanned),
 	)
 	declaredClaim := Claim{
-		Source:       SourceClearlyDefined,
-		Jurisdiction: US,
-		Subject:      "pkg:v:a",
-		Fact:         "declared_license",
-		Value:        "MIT",
-		ValidFrom:    validFrom,
-		FetchedAt:    fetched,
+		Source:    SourceClearlyDefined,
+		Subject:   "pkg:v:a",
+		Fact:      "declared_license",
+		Value:     "MIT",
+		ValidFrom: validFrom,
+		FetchedAt: fetched,
 	}
 	certifyLegalBoth := node(assemble.LabelCertifyLegal,
 		str("subjectId", "pkg:v:a"),
@@ -74,13 +72,12 @@ func TestDerive(t *testing.T) {
 		str("timeScanned", scanned),
 	)
 	discoveredClaim := Claim{
-		Source:       SourceClearlyDefined,
-		Jurisdiction: US,
-		Subject:      "pkg:v:a",
-		Fact:         "discovered_license",
-		Value:        "Apache-2.0",
-		ValidFrom:    validFrom,
-		FetchedAt:    fetched,
+		Source:    SourceClearlyDefined,
+		Subject:   "pkg:v:a",
+		Fact:      "discovered_license",
+		Value:     "Apache-2.0",
+		ValidFrom: validFrom,
+		FetchedAt: fetched,
 	}
 
 	eol := node(assemble.LabelHasMetadata,
@@ -91,13 +88,12 @@ func TestDerive(t *testing.T) {
 		str("timestamp", scanned),
 	)
 	eolClaim := Claim{
-		Source:       SourceEOL,
-		Jurisdiction: US,
-		Subject:      "pkg:v:a",
-		Fact:         "endoflife",
-		Value:        "product:x,cycle:1",
-		ValidFrom:    validFrom,
-		FetchedAt:    fetched,
+		Source:    SourceEOL,
+		Subject:   "pkg:v:a",
+		Fact:      "endoflife",
+		Value:     "product:x,cycle:1",
+		ValidFrom: validFrom,
+		FetchedAt: fetched,
 	}
 	otherMetadata := node(assemble.LabelHasMetadata,
 		str("subjectId", "pkg:v:a"),
@@ -114,13 +110,12 @@ func TestDerive(t *testing.T) {
 		str("timeScanned", scanned),
 	)
 	scorecardClaim := Claim{
-		Source:       SourceDepsDev,
-		Jurisdiction: US,
-		Subject:      "src:n:git/github.com/x/y@@c",
-		Fact:         "scorecard",
-		Value:        "7.5",
-		ValidFrom:    validFrom,
-		FetchedAt:    fetched,
+		Source:    SourceDepsDev,
+		Subject:   "src:n:git/github.com/x/y@@c",
+		Fact:      "scorecard",
+		Value:     "7.5",
+		ValidFrom: validFrom,
+		FetchedAt: fetched,
 	}
 
 	hasSourceAt := node(assemble.LabelHasSourceAt,
@@ -186,8 +181,11 @@ func assertClaims(t *testing.T, got, want []Claim) {
 	}
 	for i := range want {
 		g, w := got[i], want[i]
-		if g.Source != w.Source || g.Jurisdiction != w.Jurisdiction || g.Subject != w.Subject {
-			t.Errorf("claim %d = {%s %s %s}, want {%s %s %s}", i, g.Source, g.Jurisdiction, g.Subject, w.Source, w.Jurisdiction, w.Subject)
+		if g.Source != w.Source || g.Subject != w.Subject {
+			t.Errorf("claim %d = {%s %s}, want {%s %s}", i, g.Source, g.Subject, w.Source, w.Subject)
+		}
+		if g.Jurisdiction != "" {
+			t.Errorf("claim %d jurisdiction = %q, want the zero value: the pipeline stamps it", i, g.Jurisdiction)
 		}
 		if !slices.Equal(g.Also, w.Also) {
 			t.Errorf("claim %d Also = %v, want %v", i, g.Also, w.Also)

@@ -217,7 +217,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	// previous ones added. A failure is recorded and counted; the document is
 	// still ingested (plan D7).
 	enrichDocument := func(ctx context.Context, digest string, s varve.Stream, t time.Time) varve.Stream {
-		merged, n := foldClaims(s, enrich.Derive(s))
+		merged, n := foldClaims(s, policy.Stamp(enrich.Derive(s)))
 		for _, src := range policy.Sources {
 			// A source the policy itself refuses is silent: that is the cap
 			// doing its job. A source this build has no enricher for is not —
@@ -240,7 +240,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 				continue
 			}
 			var added int
-			merged, added = foldClaims(merged, claims)
+			merged, added = foldClaims(merged, policy.Stamp(claims))
 			n += added
 		}
 		rec.Claims += n

@@ -10,21 +10,24 @@ import (
 	"github.com/ravan/sluice/pkg/config"
 	"github.com/ravan/sluice/pkg/enrich"
 	"github.com/ravan/sluice/pkg/enrich/euvd"
+	"github.com/ravan/sluice/pkg/enrich/vulnerablecode"
 	"github.com/ravan/sluice/pkg/pipeline"
 	"github.com/ravan/sluice/pkg/varve"
 )
 
 // ingestFlags carries the shared persistent flag values of the `ingest` command.
 type ingestFlags struct {
-	varveAddr     string
-	varveGraph    string
-	validFloor    string
-	validSkew     time.Duration
-	enrichSources []string
-	enrichEUOnly  bool
-	euvdURL       string
-	expandDepsDev bool
-	expandMaxDocs int
+	varveAddr      string
+	varveGraph     string
+	validFloor     string
+	validSkew      time.Duration
+	enrichSources  []string
+	enrichEUOnly   bool
+	euvdURL        string
+	vcURL          string
+	vcJurisdiction string
+	expandDepsDev  bool
+	expandMaxDocs  int
 }
 
 func filesReceivers(dir string) config.Receivers {
@@ -50,7 +53,12 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 	if err != nil {
 		return config.Config{}, fmt.Errorf("parsing --valid-floor: %w", err)
 	}
-	policy, err := enrich.ParsePolicy(f.enrichSources, f.enrichEUOnly)
+	jurisdiction, err := enrich.ParseJurisdiction(f.vcJurisdiction)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("parsing --vulnerablecode-jurisdiction: %w", err)
+	}
+	hosted := map[enrich.Source]enrich.Jurisdiction{enrich.SourceVulnerableCode: jurisdiction}
+	policy, err := enrich.ParsePolicy(f.enrichSources, f.enrichEUOnly, hosted)
 	if err != nil {
 		return config.Config{}, fmt.Errorf("parsing --enrich: %w", err)
 	}
@@ -58,8 +66,12 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 		Receivers: recv,
 		Processors: config.Processors{
 			ValidTime: config.ValidTimeProcessor{Floor: floor.UTC(), FutureSkew: f.validSkew},
-			Enrich:    config.EnrichProcessor{Policy: policy, EUVDURL: f.euvdURL},
-			Expand:    config.ExpandProcessor{DepsDev: f.expandDepsDev, MaxDocs: f.expandMaxDocs},
+			Enrich: config.EnrichProcessor{
+				Policy:         policy,
+				EUVDURL:        f.euvdURL,
+				VulnerableCode: config.VulnerableCodeProcessor{URL: f.vcURL, Jurisdiction: jurisdiction},
+			},
+			Expand: config.ExpandProcessor{DepsDev: f.expandDepsDev, MaxDocs: f.expandMaxDocs},
 		},
 		Sink: config.Sink{Varve: config.VarveSink{Addr: f.varveAddr, TokenEnv: "VARVE_TOKEN", Graph: f.varveGraph}},
 	}, nil
@@ -88,10 +100,14 @@ func runIngest(cmd *cobra.Command, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("configuring the EUVD enricher: %w", err)
 	}
+	vcEnricher, err := vulnerablecode.New(cfg.Processors.Enrich.VulnerableCode.URL, nil)
+	if err != nil {
+		return fmt.Errorf("configuring the VulnerableCode enricher: %w", err)
+	}
 	receipt, runErr := pipeline.Run(cmd.Context(), cfg, pipeline.Deps{
 		Sink:      client,
 		Now:       func() time.Time { return now },
-		Enrichers: []enrich.Enricher{euvdEnricher},
+		Enrichers: []enrich.Enricher{euvdEnricher, vcEnricher},
 	})
 	if _, werr := fmt.Fprintln(cmd.OutOrStdout(), receipt.String()); werr != nil && runErr == nil {
 		return fmt.Errorf("writing receipt: %w", werr)
@@ -126,6 +142,10 @@ func ingestCmd() *cobra.Command {
 		"run only enrichment sources whose host sits in the EU")
 	cmd.PersistentFlags().StringVar(&flags.euvdURL, "euvd-url", euvd.DefaultURL,
 		"EUVD API base URL")
+	cmd.PersistentFlags().StringVar(&flags.vcURL, "vulnerablecode-url", vulnerablecode.DefaultURL,
+		"VulnerableCode API base URL")
+	cmd.PersistentFlags().StringVar(&flags.vcJurisdiction, "vulnerablecode-jurisdiction", string(enrich.US),
+		"jurisdiction of the VulnerableCode host --vulnerablecode-url names (eu|us|other)")
 	cmd.PersistentFlags().BoolVar(&flags.expandDepsDev, "expand-deps-dev", false,
 		"fetch transitive dependencies of document purls (deps.dev) as new documents")
 	cmd.PersistentFlags().IntVar(&flags.expandMaxDocs, "expand-max-docs", 500,

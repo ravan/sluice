@@ -490,3 +490,73 @@ func TestRunPollContinuesAfterSinkFailure(t *testing.T) {
 		t.Errorf("observer DocumentFailed = %d, want 1", failed)
 	}
 }
+
+// TestEnrichStampsTheJurisdictionFromThePolicy proves the pipeline, and not the
+// enricher, owns Claim.Jurisdiction: each fake hands back a deliberately wrong
+// value and the sink still sees what the policy says.
+func TestEnrichStampsTheJurisdictionFromThePolicy(t *testing.T) {
+	cases := []struct {
+		name   string
+		source enrich.Source
+		policy enrich.Policy
+		want   string
+	}{
+		{
+			name:   "a fixed-host source reads off the package table",
+			source: enrich.SourceEUVD,
+			policy: enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD}},
+			want:   string(enrich.EU),
+		},
+		{
+			name:   "a hosted source reads off the policy",
+			source: enrich.SourceVulnerableCode,
+			policy: enrich.Policy{
+				Sources: []enrich.Source{enrich.SourceVulnerableCode},
+				Hosted:  map[enrich.Source]enrich.Jurisdiction{enrich.SourceVulnerableCode: enrich.EU},
+			},
+			want: string(enrich.EU),
+		},
+		{
+			name:   "a us source stays us",
+			source: enrich.SourceOSV,
+			policy: enrich.Policy{Sources: []enrich.Source{enrich.SourceOSV}},
+			want:   string(enrich.US),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrong := testClaim(tc.source, "cvss", "8.1")
+			wrong.Jurisdiction = enrich.Other
+			fake := &fakeSink{responses: []response{{}}}
+
+			if _, err := runOneShotPolicy(t, fixtureDir, fake, tc.policy, pipeline.Deps{
+				Enrichers: []enrich.Enricher{&fakeEnricher{source: tc.source, claims: []enrich.Claim{wrong}}},
+			}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			nodes := claimNodes(fake.streams[0])
+			if len(nodes) != 1 {
+				t.Fatalf("sunk stream has %d Claim nodes, want 1", len(nodes))
+			}
+			got, ok := propOf(nodes[0], enrich.PropSourceJurisdiction)
+			if !ok {
+				t.Fatalf("the sunk claim carries no %s prop", enrich.PropSourceJurisdiction)
+			}
+			if got != tc.want {
+				t.Errorf("%s = %q, want %q", enrich.PropSourceJurisdiction, got, tc.want)
+			}
+		})
+	}
+}
+
+func propOf(n varve.NodeRecord, key string) (string, bool) {
+	for _, p := range n.Props {
+		if p.Key != key {
+			continue
+		}
+		if v, ok := p.Value.(varve.Str); ok {
+			return string(v), true
+		}
+	}
+	return "", false
+}

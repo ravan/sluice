@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.0 — 2026-09-03
+
+### Added
+
+- `pkg/enrich/vulnerablecode`, the second enrichment source. It asks AboutCode's
+  VulnerableCode which advisories affect the packages a document names, with one
+  `GET /api/v3/affected-by-advisories?purl=<purl>` per `PkgVersion` node. Every
+  request carries `User-Agent: VCIO_API_AGENT`; the server answers 403 without
+  it. There is no API key. One advisory becomes one `affected` claim about the
+  package, plus a fact set on every alias vulnerability the stream already
+  carries.
+- `enrich.FactAdvisoryID` and `enrich.FactFixedBy`.
+- `enrich.VulnNodes` and `enrich.PkgPurls`, the two stream helpers an enricher
+  needs to find its subjects.
+- `enrich.AllJurisdictions`, `enrich.ParseJurisdiction` and
+  `enrich.ErrUnknownJurisdiction`.
+- `enrich.Policy.Hosted` and `enrich.Policy.JurisdictionOf`. A source whose host
+  is a deployment choice takes its jurisdiction from the install, not from a
+  fixed table. A source no table names is `Other`, which `eu_only` refuses: the
+  cap fails closed.
+
+### Changed
+
+Three breaking changes. This is a pre-release: there is no compatibility path.
+
+- `enrich.ParsePolicy` takes a third argument, `hosted
+  map[Source]Jurisdiction`. A builder method was rejected: a builder call that
+  is forgotten is invisible.
+- `enrich.Claim.Jurisdiction` is set by the pipeline, never by an enricher.
+  `enrich.Policy.Stamp` writes it after `Derive` and after each enricher, so the
+  same fact is no longer held in two places where they can disagree.
+  `enrich.Derive` and the EUVD enricher no longer set the field.
+- `config.EnrichProcessor` gains `VulnerableCode`, read from
+  `processors.enrich.vulnerablecode.{url, jurisdiction}`. An absent block means
+  the public instance at `us`.
+
 ## v0.4.0 — 2026-09-03
 
 ### Added

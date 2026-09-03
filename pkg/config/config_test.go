@@ -8,6 +8,7 @@ import (
 
 	"github.com/ravan/sluice/pkg/enrich"
 	"github.com/ravan/sluice/pkg/enrich/euvd"
+	"github.com/ravan/sluice/pkg/enrich/vulnerablecode"
 	"github.com/ravan/sluice/pkg/validtime"
 )
 
@@ -431,5 +432,64 @@ sink:
 `
 	if _, err := Load(strings.NewReader(unknown)); err == nil {
 		t.Errorf("Load(unknown sink key) = nil error, want a KnownFields failure")
+	}
+}
+
+func TestLoadEnrichVulnerableCode(t *testing.T) {
+	cases := []struct {
+		name     string
+		block    string
+		wantURL  string
+		wantJur  enrich.Jurisdiction
+		wantErr  bool
+		contains string
+	}{
+		{
+			name:    "absent block",
+			block:   `{sources: [vulnerablecode]}`,
+			wantURL: vulnerablecode.DefaultURL,
+			wantJur: enrich.US,
+		},
+		{
+			name:    "url and jurisdiction",
+			block:   `{sources: [vulnerablecode], vulnerablecode: {url: "http://stub", jurisdiction: eu}}`,
+			wantURL: "http://stub",
+			wantJur: enrich.EU,
+		},
+		{
+			name:     "unknown jurisdiction",
+			block:    `{sources: [vulnerablecode], vulnerablecode: {jurisdiction: moon}}`,
+			wantErr:  true,
+			contains: "processors.enrich.vulnerablecode.jurisdiction",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "receivers:\n  files: {path: ./x}\nprocessors:\n  enrich: " + tc.block +
+				"\nsink:\n  varve: {addr: \"http://localhost:8080\", token_env: VARVE_TOKEN}\n"
+			cfg, err := Load(strings.NewReader(src))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Load() error = nil, want non-nil")
+				}
+				if !strings.Contains(err.Error(), tc.contains) {
+					t.Errorf("error = %q, want it to name %q", err.Error(), tc.contains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			got := cfg.Processors.Enrich.VulnerableCode
+			if got.URL != tc.wantURL {
+				t.Errorf("VulnerableCode.URL = %q, want %q", got.URL, tc.wantURL)
+			}
+			if got.Jurisdiction != tc.wantJur {
+				t.Errorf("VulnerableCode.Jurisdiction = %q, want %q", got.Jurisdiction, tc.wantJur)
+			}
+			if j := cfg.Processors.Enrich.Policy.JurisdictionOf(enrich.SourceVulnerableCode); j != tc.wantJur {
+				t.Errorf("Policy.JurisdictionOf(vulnerablecode) = %q, want %q", j, tc.wantJur)
+			}
+		})
 	}
 }

@@ -64,15 +64,17 @@ func TestGCSReceivers(t *testing.T) {
 
 func TestBuildIngestConfig(t *testing.T) {
 	cfg, err := buildIngestConfig(filesReceivers("d"), ingestFlags{
-		varveAddr:     "http://v",
-		varveGraph:    "org_a",
-		validFloor:    "2000-01-01T00:00:00Z",
-		validSkew:     5 * time.Minute,
-		enrichSources: []string{"euvd", "osv"},
-		enrichEUOnly:  true,
-		euvdURL:       "http://stub/api",
-		expandDepsDev: true,
-		expandMaxDocs: 25,
+		varveAddr:      "http://v",
+		varveGraph:     "org_a",
+		validFloor:     "2000-01-01T00:00:00Z",
+		validSkew:      5 * time.Minute,
+		enrichSources:  []string{"euvd", "osv"},
+		enrichEUOnly:   true,
+		euvdURL:        "http://stub/api",
+		vcURL:          "http://vc",
+		vcJurisdiction: "eu",
+		expandDepsDev:  true,
+		expandMaxDocs:  25,
 	})
 	if err != nil {
 		t.Fatalf("buildIngestConfig returned error: %v", err)
@@ -86,6 +88,13 @@ func TestBuildIngestConfig(t *testing.T) {
 	}
 	if cfg.Processors.Enrich.EUVDURL != "http://stub/api" {
 		t.Errorf("Enrich.EUVDURL = %q, want %q", cfg.Processors.Enrich.EUVDURL, "http://stub/api")
+	}
+	wantVC := config.VulnerableCodeProcessor{URL: "http://vc", Jurisdiction: enrich.EU}
+	if cfg.Processors.Enrich.VulnerableCode != wantVC {
+		t.Errorf("Enrich.VulnerableCode = %+v, want %+v", cfg.Processors.Enrich.VulnerableCode, wantVC)
+	}
+	if j := cfg.Processors.Enrich.Policy.JurisdictionOf(enrich.SourceVulnerableCode); j != enrich.EU {
+		t.Errorf("Policy.JurisdictionOf(vulnerablecode) = %q, want %q", j, enrich.EU)
 	}
 	if !cfg.Processors.Expand.DepsDev || cfg.Processors.Expand.MaxDocs != 25 {
 		t.Errorf("Expand = %+v, want DepsDev true MaxDocs 25", cfg.Processors.Expand)

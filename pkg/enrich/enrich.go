@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ravan/sluice/pkg/assemble"
@@ -54,17 +55,24 @@ var Jurisdictions = map[Source]Jurisdiction{
 	SourceDepsDev:        US,
 }
 
+// AllJurisdictions is the closed set ParseJurisdiction accepts.
+var AllJurisdictions = []Jurisdiction{EU, US, Other}
+
 // ErrUnknownSource is returned when a policy names a source outside Sources.
 var ErrUnknownSource = errors.New("enrich: unknown source")
+
+// ErrUnknownJurisdiction is returned when a name falls outside AllJurisdictions.
+var ErrUnknownJurisdiction = errors.New("enrich: unknown jurisdiction")
 
 // Policy is the org's enrichment rules as the pipeline enforces them.
 type Policy struct {
 	Sources []Source // priority order
 	EUOnly  bool
+	Hosted  map[Source]Jurisdiction // per-install jurisdiction for a source whose host is a deployment choice; wins over Jurisdictions
 }
 
-// ParsePolicy validates a list of source names into a Policy.
-func ParsePolicy(sources []string, euOnly bool) (Policy, error) {
+// ParsePolicy validates source names and hosted jurisdictions into a Policy.
+func ParsePolicy(sources []string, euOnly bool, hosted map[Source]Jurisdiction) (Policy, error) {
 	p := Policy{EUOnly: euOnly}
 	seen := map[Source]bool{}
 	for _, name := range sources {
@@ -78,7 +86,48 @@ func ParsePolicy(sources []string, euOnly bool) (Policy, error) {
 		seen[s] = true
 		p.Sources = append(p.Sources, s)
 	}
+	for s, j := range hosted {
+		if !slices.Contains(Sources, s) {
+			return Policy{}, fmt.Errorf("%w: %q", ErrUnknownSource, s)
+		}
+		if !slices.Contains(AllJurisdictions, j) {
+			return Policy{}, fmt.Errorf("%w: %q for source %q", ErrUnknownJurisdiction, j, s)
+		}
+		if p.Hosted == nil {
+			p.Hosted = map[Source]Jurisdiction{}
+		}
+		p.Hosted[s] = j
+	}
 	return p, nil
+}
+
+// ParseJurisdiction validates a jurisdiction name read out of config.
+func ParseJurisdiction(name string) (Jurisdiction, error) {
+	j := Jurisdiction(name)
+	if !slices.Contains(AllJurisdictions, j) {
+		return "", fmt.Errorf("%w: %q", ErrUnknownJurisdiction, name)
+	}
+	return j, nil
+}
+
+// JurisdictionOf answers for one source: Hosted, else Jurisdictions, else Other.
+func (p Policy) JurisdictionOf(s Source) Jurisdiction {
+	if j, ok := p.Hosted[s]; ok {
+		return j
+	}
+	if j, ok := Jurisdictions[s]; ok {
+		return j
+	}
+	return Other
+}
+
+// Stamp sets Jurisdiction on every claim from JurisdictionOf, and returns the
+// same slice. The pipeline is the only caller; an enricher never sets the field.
+func (p Policy) Stamp(claims []Claim) []Claim {
+	for i := range claims {
+		claims[i].Jurisdiction = p.JurisdictionOf(claims[i].Source)
+	}
+	return claims
 }
 
 // Allows reports whether s may run: listed, and under EUOnly sitting in the EU.
@@ -89,7 +138,7 @@ func (p Policy) Allows(s Source) bool {
 	if !p.EUOnly {
 		return true
 	}
-	return Jurisdictions[s] == EU
+	return p.JurisdictionOf(s) == EU
 }
 
 // ScanFlags gates GUAC's four in-parser scanners by the same policy.
@@ -135,6 +184,42 @@ func VulnNames(s varve.Stream) []string {
 		}
 		seen[name] = true
 		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// VulnNodes maps every Vulnerability node's lower-cased vulnID to its node id.
+func VulnNodes(s varve.Stream) map[string]varve.NodeID {
+	out := map[string]varve.NodeID{}
+	for _, n := range s.Nodes {
+		if !slices.Contains(n.Labels, assemble.LabelVulnerability) {
+			continue
+		}
+		name, ok := propStr(n.Props, assemble.PropVulnID)
+		if !ok || name == "" {
+			continue
+		}
+		out[strings.ToLower(name)] = n.ID
+	}
+	return out
+}
+
+// PkgPurls returns the purl of every PkgVersion node, sorted and deduped,
+// skipping the empty ones.
+func PkgPurls(s varve.Stream) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range s.Nodes {
+		if !slices.Contains(n.Labels, assemble.LabelPkgVersion) {
+			continue
+		}
+		purl, ok := propStr(n.Props, assemble.PropPurl)
+		if !ok || purl == "" || seen[purl] {
+			continue
+		}
+		seen[purl] = true
+		out = append(out, purl)
 	}
 	sort.Strings(out)
 	return out

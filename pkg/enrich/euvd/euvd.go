@@ -173,14 +173,13 @@ func claimsFor(subject varve.NodeID, it item, now time.Time) []enrich.Claim {
 	claims := make([]enrich.Claim, 0, len(facts))
 	for _, f := range facts {
 		claims = append(claims, enrich.Claim{
-			Source:       enrich.SourceEUVD,
-			Jurisdiction: enrich.EU,
-			Subject:      subject,
-			Fact:         f.Fact,
-			Value:        f.Value,
-			Ref:          it.ID,
-			ValidFrom:    validFrom,
-			FetchedAt:    now,
+			Source:    enrich.SourceEUVD,
+			Subject:   subject,
+			Fact:      f.Fact,
+			Value:     f.Value,
+			Ref:       it.ID,
+			ValidFrom: validFrom,
+			FetchedAt: now,
 		})
 	}
 	return claims

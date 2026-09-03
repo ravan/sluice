@@ -9,6 +9,7 @@ import (
 
 	"github.com/ravan/sluice/pkg/enrich"
 	"github.com/ravan/sluice/pkg/enrich/euvd"
+	"github.com/ravan/sluice/pkg/enrich/vulnerablecode"
 	"github.com/ravan/sluice/pkg/validtime"
 	"gopkg.in/yaml.v3"
 )
@@ -68,11 +69,19 @@ type Processors struct {
 }
 
 // EnrichProcessor is the org's enrichment policy plus the endpoints the
-// enrichers it names need. Absent ⇒ the zero policy (nothing enriches) and the
-// default EUVD endpoint.
+// enrichers this build carries need. Absent ⇒ the zero policy (nothing
+// enriches) and the default endpoints.
 type EnrichProcessor struct {
-	Policy  enrich.Policy
-	EUVDURL string
+	Policy         enrich.Policy
+	EUVDURL        string
+	VulnerableCode VulnerableCodeProcessor
+}
+
+// VulnerableCodeProcessor is the VulnerableCode endpoint and the jurisdiction
+// of the host it names. An absent block means DefaultURL and US.
+type VulnerableCodeProcessor struct {
+	URL          string
+	Jurisdiction enrich.Jurisdiction
 }
 
 // ExpandProcessor: in-process deps.dev expansion. DepsDev false ⇒ no expansion.
@@ -154,13 +163,19 @@ type wireValidTime struct {
 }
 
 type wireEnrich struct {
-	Sources []string  `yaml:"sources"`
-	EUOnly  bool      `yaml:"eu_only"`
-	EUVD    *wireEUVD `yaml:"euvd"`
+	Sources        []string            `yaml:"sources"`
+	EUOnly         bool                `yaml:"eu_only"`
+	EUVD           *wireEUVD           `yaml:"euvd"`
+	VulnerableCode *wireVulnerableCode `yaml:"vulnerablecode"`
 }
 
 type wireEUVD struct {
 	URL string `yaml:"url"`
+}
+
+type wireVulnerableCode struct {
+	URL          string `yaml:"url"`
+	Jurisdiction string `yaml:"jurisdiction"`
 }
 
 type wireExpand struct {
@@ -298,9 +313,27 @@ func Load(r io.Reader) (Config, error) {
 	}
 	cfg.Processors.ValidTime = vt
 
-	cfg.Processors.Enrich = EnrichProcessor{EUVDURL: euvd.DefaultURL}
+	cfg.Processors.Enrich = EnrichProcessor{
+		EUVDURL:        euvd.DefaultURL,
+		VulnerableCode: VulnerableCodeProcessor{URL: vulnerablecode.DefaultURL, Jurisdiction: enrich.US},
+	}
 	if e := wire.Processors.Enrich; e != nil {
-		policy, perr := enrich.ParsePolicy(e.Sources, e.EUOnly)
+		if e.VulnerableCode != nil {
+			if e.VulnerableCode.URL != "" {
+				cfg.Processors.Enrich.VulnerableCode.URL = e.VulnerableCode.URL
+			}
+			if e.VulnerableCode.Jurisdiction != "" {
+				j, jerr := enrich.ParseJurisdiction(e.VulnerableCode.Jurisdiction)
+				if jerr != nil {
+					return Config{}, fmt.Errorf("config: processors.enrich.vulnerablecode.jurisdiction: %w", jerr)
+				}
+				cfg.Processors.Enrich.VulnerableCode.Jurisdiction = j
+			}
+		}
+		hosted := map[enrich.Source]enrich.Jurisdiction{
+			enrich.SourceVulnerableCode: cfg.Processors.Enrich.VulnerableCode.Jurisdiction,
+		}
+		policy, perr := enrich.ParsePolicy(e.Sources, e.EUOnly, hosted)
 		if perr != nil {
 			return Config{}, fmt.Errorf("config: processors.enrich.sources: %w", perr)
 		}

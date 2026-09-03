@@ -53,6 +53,8 @@ const (
 	FactPublished   Fact = "published"
 	FactUpdated     Fact = "updated"
 	FactReference   Fact = "reference"
+	FactAdvisoryID  Fact = "advisory_id"
+	FactFixedBy     Fact = "fixed_by"
 )
 
 // FactValue is one fact paired with the value a source states for it. An
@@ -67,6 +69,7 @@ var Facts = []Fact{
 	FactAffected, FactDeclaredLicense, FactDiscoveredLicense, FactEndOfLife, FactScorecard,
 	FactEUVDID, FactCVSS, FactCVSSVersion, FactCVSSVector, FactEPSS,
 	FactDescription, FactPublished, FactUpdated, FactReference,
+	FactAdvisoryID, FactFixedBy,
 }
 
 // ErrUnknownFact is returned when a name falls outside Facts.
@@ -84,7 +87,7 @@ func ParseFact(name string) (Fact, error) {
 // Claim is one fact from one source about one subject (ADR 0031).
 type Claim struct {
 	Source       Source
-	Jurisdiction Jurisdiction
+	Jurisdiction Jurisdiction   // set by the pipeline from the policy, never by an enricher
 	Subject      varve.NodeID   // part of the identity
 	Also         []varve.NodeID // further ABOUT targets, not part of the identity
 	Fact         Fact

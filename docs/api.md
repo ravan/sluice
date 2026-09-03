@@ -33,20 +33,26 @@ transaction as the document's Sluice records.
 Enrichers run after assemble and before the decorators, in the order
 `config.Processors.Enrich.Policy.Sources` names — not `Deps.Enrichers` order. A
 policy naming a source no enricher was built for is skipped silently. Each
-enricher sees the claims the previous ones added.
+enricher sees the claims the previous ones added. The pipeline stamps
+`Claim.Jurisdiction` from the policy at both fold sites, so an enricher never
+sets the field.
 
 ## `pkg/enrich`
 
 | Identifier | Role |
 |---|---|
 | `Source`, `Jurisdiction` | String types. The six `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
-| `Sources`, `Jurisdictions` | The closed source set, and each source's host jurisdiction. `vulnerablecode` has no entry, so `eu_only` never runs it. |
-| `ParsePolicy([]string, bool) (Policy, error)` | Validates source names. `ErrUnknownSource` (wrapped) or a duplicate error. |
-| `Policy{Sources, EUOnly}` | The org's rules. `Sources` is priority order. |
-| `(Policy).Allows(Source) bool` | Listed, and under `EUOnly` sitting in the EU. |
+| `Sources`, `Jurisdictions` | The closed source set, and each fixed-host source's jurisdiction. `vulnerablecode` has no entry: its host is a deployment choice, so `Policy.Hosted` supplies it. |
+| `AllJurisdictions` | The closed jurisdiction set: `EU`, `US`, `Other`. |
+| `ParsePolicy([]string, bool, map[Source]Jurisdiction) (Policy, error)` | Validates source names and hosted jurisdictions. `ErrUnknownSource` (wrapped), a duplicate error, or `ErrUnknownJurisdiction` (wrapped). |
+| `ParseJurisdiction(string) (Jurisdiction, error)` | Validates a jurisdiction name read out of config. `ErrUnknownJurisdiction` (wrapped). |
+| `Policy{Sources, EUOnly, Hosted}` | The org's rules. `Sources` is priority order. `Hosted` is the per-install jurisdiction of a source whose host is a deployment choice; it wins over `Jurisdictions`. |
+| `(Policy).JurisdictionOf(Source) Jurisdiction` | `Hosted`, else `Jurisdictions`, else `Other`. A source no table names is `Other`, which `eu_only` refuses: the cap fails closed. |
+| `(Policy).Stamp([]Claim) []Claim` | Sets `Jurisdiction` on every claim from `JurisdictionOf`. The pipeline is the only caller. |
+| `(Policy).Allows(Source) bool` | Listed, and under `EUOnly` sitting in the EU by `JurisdictionOf`. |
 | `(Policy).ScanFlags() guacseam.ScanFlags` | The same policy, gating GUAC's four in-parser scanners. |
-| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. |
-| `Fact`, `Facts` | The closed set of fact names. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
+| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. `Jurisdiction` is set by the pipeline from the policy, never by an enricher. |
+| `Fact`, `Facts` | The closed set of fact names, including `advisory_id` and `fixed_by`. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
 | `ParseFact(string) (Fact, error)` | Validates a name read off the wire or out of config. `ErrUnknownFact` (wrapped). |
 | `FactValue{Fact, Value}` | One fact paired with the value a source states for it. An enricher builds these before it knows the subject. |
 | `Prop*` constants | The property-key vocabulary of a `Claim` node: `source`, `source_jurisdiction`, `fetched_at`, `fact`, `value`, `ref`, `subject_id`. |
@@ -55,6 +61,8 @@ enricher sees the claims the previous ones added.
 | `Input{Digest, Records, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too. |
 | `Enricher` | `Source() Source`; `Enrich(ctx, Input) ([]Claim, error)`. Must not modify `in.Records`. |
 | `VulnNames(varve.Stream) []string` | Every `Vulnerability` node of type `cve` or `euvd`, sorted and deduped. |
+| `VulnNodes(varve.Stream) map[string]varve.NodeID` | Every `Vulnerability` node's lower-cased `vulnID` to its node id. |
+| `PkgPurls(varve.Stream) []string` | The `purl` of every `PkgVersion` node, sorted and deduped. |
 | `Derive(varve.Stream) []Claim` | Scanner evidence to claims, by `(label, collector)`, ordered by id. |
 
 ## `pkg/enrich/euvd`
@@ -65,6 +73,16 @@ enricher sees the claims the previous ones added.
 | `New(baseURL string, client *http.Client) (*Enricher, error)` | A bad URL is an error; a nil client is a 20 s-timeout client. |
 | `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `GET <base>/search?text=<name>&size=10` per vulnerability name. |
 | `ErrStatus` | A non-2xx answer from the API. |
+
+## `pkg/enrich/vulnerablecode`
+
+| Identifier | Role |
+|---|---|
+| `DefaultURL` | `https://public2.vulnerablecode.io`. `public.vulnerablecode.io` answered 500 on every path on 2026-09-03. |
+| `UserAgent` | `VCIO_API_AGENT`. The server rejects any `/api/` request with another User-Agent with 403. There is no API key (ADR 0031 amendment). |
+| `New(baseURL string, client *http.Client) (*Enricher, error)` | A bad URL is an error; a nil client is a 20 s-timeout client. |
+| `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `GET <base>/api/v3/affected-by-advisories?purl=<purl>` per `PkgVersion` node. One advisory becomes one `affected` claim about the package plus a fact set on every alias vulnerability the stream already carries. |
+| `ErrStatus` | A non-200 answer from the API. |
 
 ## `pkg/varve`
 
@@ -121,7 +139,8 @@ The only package that calls GUAC behaviour.
 | `Config{Receivers, Processors, Sink}` | The validated pipeline definition. A library caller may build it directly. |
 | `Receivers{Files, OCI, S3, GCS}` and the four receiver structs | Absent receiver is `nil`. `Poll == 0` means one pass. |
 | `Processors{ValidTime, Enrich, Expand}` | Guard bounds, enrichment policy, expansion budget. |
-| `EnrichProcessor{Policy, EUVDURL}` | The org's `enrich.Policy` plus the EUVD endpoint. Absent block means the zero policy and `euvd.DefaultURL`. |
+| `EnrichProcessor{Policy, EUVDURL, VulnerableCode}` | The org's `enrich.Policy` plus the endpoints the enrichers this build carries need. Absent block means the zero policy, `euvd.DefaultURL` and `vulnerablecode.DefaultURL` at `us`. |
+| `VulnerableCodeProcessor{URL, Jurisdiction}` | The VulnerableCode endpoint and the jurisdiction of the host it names, from `processors.enrich.vulnerablecode.{url, jurisdiction}`. It becomes `Policy.Hosted`. |
 | `Sink{Varve}`, `VarveSink{Addr, TokenEnv, Graph}` | The writer declaration. `pipeline.Run` never reads it; the caller builds the client. |
 
 ## `pkg/validtime`

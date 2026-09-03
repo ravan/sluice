@@ -114,15 +114,14 @@ func nodeClaims(n varve.NodeRecord) []Claim {
 		fetched, _ := time.Parse(time.RFC3339, stamp)
 		for _, f := range facts {
 			out = append(out, Claim{
-				Source:       sc.source,
-				Jurisdiction: Jurisdictions[sc.source],
-				Subject:      varve.NodeID(subject),
-				Also:         also,
-				Fact:         f.Fact,
-				Value:        f.Value,
-				Ref:          ref,
-				ValidFrom:    n.ValidFrom,
-				FetchedAt:    fetched,
+				Source:    sc.source,
+				Subject:   varve.NodeID(subject),
+				Also:      also,
+				Fact:      f.Fact,
+				Value:     f.Value,
+				Ref:       ref,
+				ValidFrom: n.ValidFrom,
+				FetchedAt: fetched,
 			})
 		}
 	}
