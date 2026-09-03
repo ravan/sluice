@@ -14,7 +14,9 @@ func versionCmd() *cobra.Command {
 		Short: "Print the sluice version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), version)
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), version); err != nil {
+				return fmt.Errorf("writing version: %w", err)
+			}
 			return nil
 		},
 	}

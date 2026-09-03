@@ -83,7 +83,7 @@ func (e *Enricher) Enrich(ctx context.Context, in enrich.Input) ([]enrich.Claim,
 }
 
 // search runs one GET against the search endpoint.
-func (e *Enricher) search(ctx context.Context, name string) (page, error) {
+func (e *Enricher) search(ctx context.Context, name string) (p page, err error) {
 	u := e.base.JoinPath("search")
 	q := url.Values{}
 	q.Set("text", name)
@@ -98,13 +98,16 @@ func (e *Enricher) search(ctx context.Context, name string) (page, error) {
 	if err != nil {
 		return page{}, fmt.Errorf("euvd: get %s: %w", name, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("euvd: close %s: %w", name, cerr)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return page{}, fmt.Errorf("%w: %d for %s", ErrStatus, resp.StatusCode, name)
 	}
-	var p page
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
-		return page{}, fmt.Errorf("euvd: decode %s: %w", name, err)
+	if derr := json.NewDecoder(resp.Body).Decode(&p); derr != nil {
+		return page{}, fmt.Errorf("euvd: decode %s: %w", name, derr)
 	}
 	return p, nil
 }

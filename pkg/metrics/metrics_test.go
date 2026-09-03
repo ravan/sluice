@@ -67,7 +67,11 @@ func TestHandlerServesExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", srv.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("closing response body: %v", cerr)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -90,7 +94,11 @@ func TestHandlerServesPrometheusText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", srv.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("closing response body: %v", cerr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
@@ -129,7 +137,11 @@ func TestDecoratorCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", srv.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("closing response body: %v", cerr)
+		}
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
@@ -154,7 +166,11 @@ func TestEnrichCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", srv.URL, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("closing response body: %v", cerr)
+		}
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)

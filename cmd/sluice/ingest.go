@@ -93,7 +93,9 @@ func runIngest(cmd *cobra.Command, cfg config.Config) error {
 		Now:       func() time.Time { return now },
 		Enrichers: []enrich.Enricher{euvdEnricher},
 	})
-	fmt.Fprintln(cmd.OutOrStdout(), receipt.String())
+	if _, werr := fmt.Fprintln(cmd.OutOrStdout(), receipt.String()); werr != nil && runErr == nil {
+		return fmt.Errorf("writing receipt: %w", werr)
+	}
 	if runErr != nil {
 		return runErr
 	}

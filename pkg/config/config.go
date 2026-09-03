@@ -341,12 +341,16 @@ func Load(r io.Reader) (Config, error) {
 }
 
 // LoadFile opens path then calls Load.
-func LoadFile(path string) (Config, error) {
+func LoadFile(path string) (cfg Config, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("config: close %s: %w", path, cerr)
+		}
+	}()
 
 	return Load(f)
 }

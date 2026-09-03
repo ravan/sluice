@@ -229,10 +229,13 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 			return Receipt{}, fmt.Errorf("post /v1/ingest: %w", err)
 		}
 
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return Receipt{}, fmt.Errorf("read response body: %w", err)
+		body, readErr := io.ReadAll(resp.Body)
+		closeErr := resp.Body.Close()
+		if readErr != nil {
+			return Receipt{}, fmt.Errorf("read response body: %w", readErr)
+		}
+		if closeErr != nil {
+			return Receipt{}, fmt.Errorf("close response body: %w", closeErr)
 		}
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -244,7 +247,11 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 		}
 
 		var eb ingestErrorBody
-		_ = json.Unmarshal(body, &eb)
+		if jerr := json.Unmarshal(body, &eb); jerr != nil {
+			// Not one of the JSON error shapes. Discard any partial decode so
+			// the message below falls back to the raw body.
+			eb = ingestErrorBody{}
+		}
 
 		var wait time.Duration
 		retry := false

@@ -115,7 +115,9 @@ func runCmd() *cobra.Command {
 			mux.Handle("/metrics", m.Handler())
 			mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte("ok"))
+				if _, err := w.Write([]byte("ok")); err != nil {
+					logger.Debug("healthz write", "error", err)
+				}
 			})
 			srv := &http.Server{Handler: mux}
 			go func() {
@@ -150,7 +152,9 @@ func runCmd() *cobra.Command {
 
 			shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = srv.Shutdown(shCtx)
+			if err := srv.Shutdown(shCtx); err != nil {
+				logger.Error("metrics server shutdown", "error", err)
+			}
 			return runErr
 		},
 	}
@@ -158,6 +162,6 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", ":9464", "address for the /metrics and /healthz HTTP server")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug|info|warn|error")
 	cmd.Flags().StringVar(&logFormat, "log-format", "json", "log format: json|text")
-	_ = cmd.MarkFlagRequired("config")
+	cobra.CheckErr(cmd.MarkFlagRequired("config"))
 	return cmd
 }

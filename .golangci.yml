@@ -1,5 +1,10 @@
-# Default linters (errcheck, gosimple, govet, ineffassign, staticcheck,
-# unused) plus gofmt. No linter is disabled to make code pass.
+version: "2"
+
+# Default linters (errcheck, govet, ineffassign, staticcheck, unused)
+# plus gofmt. No linter is disabled to make code pass.
 linters:
+  default: standard
+
+formatters:
   enable:
     - gofmt

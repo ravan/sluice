@@ -119,7 +119,9 @@ func runBench(cmd *cobra.Command, dir, varveAddr string) error {
 		return fmt.Errorf("ingesting benchmark stream: %w", ingestErr)
 	}
 	br := benchResult{Nodes: len(res.Stream.Nodes), Edges: len(res.Stream.Edges), Elapsed: elapsed}
-	fmt.Fprintln(cmd.OutOrStdout(), br.report())
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), br.report()); err != nil {
+		return fmt.Errorf("writing benchmark report: %w", err)
+	}
 	if !br.beatsBranch() {
 		return fmt.Errorf("throughput below the branch baseline: %.0f edges/s < %.0f", br.edgesPerSec(), branchEdgesPerSec)
 	}
