@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.0 — 2026-09-03
+
+### Added
+
+- `pipeline.ErrNoEnricher`. A policy naming a source this build has no enricher
+  for used to be skipped in silence: nothing ran, and nothing said so. It is now
+  recorded in `Receipt.EnrichFailed`, counted through
+  `Observer.EnrichFailed`, and logged at warn. A source the policy itself
+  refuses (`eu_only`, or simply not listed) stays silent — that is the cap doing
+  its job, not a fault.
+
 ## v0.3.0 — 2026-09-03
 
 ### Changed

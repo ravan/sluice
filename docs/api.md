@@ -1,4 +1,4 @@
-# Sluice library surface (`v0.3.0`)
+# Sluice library surface (`v0.4.0`)
 
 Sluice is importable as a Go library. Every package under `pkg/` is public.
 `v0.x` means "public API, not yet stable": a minor bump may break it, and the
@@ -20,6 +20,7 @@ extend that stream, and writes it to a `Sink`. You supply the sink (usually
 | `DecorateInput` | `Raw`, `Digest` (lower-case hex sha256 of `Raw`), `Source`, `Origin`, `Doc`, `Preds`, `Records`, `ValidFrom`, `Fallback`, `Now`. |
 | `DecorateError{Source, Digest, Err}` | One rejected document. Implements `error` and `Unwrap`. |
 | `EnrichError{Source, Digest, Err}` | One failed enrichment call. Implements `error` and `Unwrap`. The document is still ingested. |
+| `ErrNoEnricher` | The `Err` of the `EnrichError` recorded when the policy names a source `Deps.Enrichers` has none for. |
 | `Receipt` | Run outcome: `Documents`, `Nodes`, `Edges`, `Transactions`, `Basis`, `Skipped`, `Fallbacks`, `Expanded`, `ExpansionBudget`, `ExpansionExhausted`, `Decorated`, `DecorateFailed`, `Claims`, `EnrichFailed`. `String()` renders it. |
 | `Observer` | Metrics seam: `DocumentIngested`, `DocumentSkipped`, `DocumentFailed`, `RecordsEmitted`, `FallbacksCounted`, `ExpansionDocuments`, `DocumentDecorated`, `DocumentDecorateFailed`, `ClaimsEmitted`, `EnrichFailed(enrich.Source)`. `*metrics.Metrics` satisfies it. |
 

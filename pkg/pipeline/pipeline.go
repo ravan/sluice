@@ -44,6 +44,11 @@ type Receipt struct {
 	EnrichFailed       []EnrichError   // enrichment calls that failed; counted, never fatal
 }
 
+// ErrNoEnricher is the failure recorded when the policy names a source this
+// build carries no enricher for. Nothing ran, so it is reported rather than
+// skipped in silence.
+var ErrNoEnricher = errors.New("pipeline: no enricher built for this source")
+
 // EnrichError names the source and document an enrichment call failed for. The
 // document is still ingested (plan D7).
 type EnrichError struct {
@@ -214,8 +219,17 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	enrichDocument := func(ctx context.Context, digest string, s varve.Stream, t time.Time) varve.Stream {
 		merged, n := foldClaims(s, enrich.Derive(s))
 		for _, src := range policy.Sources {
+			// A source the policy itself refuses is silent: that is the cap
+			// doing its job. A source this build has no enricher for is not —
+			// the org asked for it and nothing ran, so it is reported.
+			if !policy.Allows(src) {
+				continue
+			}
 			e := enricherFor(deps.Enrichers, src)
-			if e == nil || !policy.Allows(src) {
+			if e == nil {
+				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: ErrNoEnricher})
+				observer.EnrichFailed(src)
+				logger.Warn("no enricher for a source the policy names", "source", src, "digest", digest)
 				continue
 			}
 			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Now: t})

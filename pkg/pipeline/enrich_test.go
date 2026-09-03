@@ -187,3 +187,45 @@ func TestEnrichFailureIsCountedNotFatal(t *testing.T) {
 		}
 	}
 }
+
+func TestEnrichReportsASourceWithNoEnricher(t *testing.T) {
+	obs := newFakeObserver()
+	fake := &fakeSink{responses: []response{{}}}
+
+	rec, err := runOneShotPolicy(t, fixtureDir, fake,
+		enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD}},
+		pipeline.Deps{Observer: obs})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rec.Documents != 1 {
+		t.Errorf("Documents = %d, want 1: a missing enricher never drops a document", rec.Documents)
+	}
+	if len(rec.EnrichFailed) != 1 {
+		t.Fatalf("EnrichFailed = %+v, want exactly one entry", rec.EnrichFailed)
+	}
+	e := rec.EnrichFailed[0]
+	if e.Source != enrich.SourceEUVD {
+		t.Errorf("EnrichFailed[0].Source = %q, want %q", e.Source, enrich.SourceEUVD)
+	}
+	if !errors.Is(e, pipeline.ErrNoEnricher) {
+		t.Errorf("EnrichFailed[0] = %v, want errors.Is(ErrNoEnricher)", e)
+	}
+	if obs.enrichFailed["euvd"] != 1 {
+		t.Errorf("observer saw EnrichFailed(euvd) %d times, want 1", obs.enrichFailed["euvd"])
+	}
+}
+
+func TestEnrichStaysSilentWhenThePolicyItselfBlocksTheSource(t *testing.T) {
+	fake := &fakeSink{responses: []response{{}}}
+
+	rec, err := runOneShotPolicy(t, fixtureDir, fake,
+		enrich.Policy{Sources: []enrich.Source{enrich.SourceOSV}, EUOnly: true},
+		pipeline.Deps{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(rec.EnrichFailed) != 0 {
+		t.Errorf("EnrichFailed = %+v, want empty: the cap refusing a source is the feature, not a fault", rec.EnrichFailed)
+	}
+}
