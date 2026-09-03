@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.2.0 — 2026-09-03
+
+### Added
+
+- `pkg/enrich`: the org's enrichment policy as the pipeline enforces it
+  (`Policy`, `ParsePolicy`, `Allows`, `ScanFlags`), the six `Source` names, the
+  `Jurisdictions` table behind `eu_only`, the `Claim` record (`ID`, `Records`),
+  the `Enricher` seam, `VulnNames` and `Derive` (scanner evidence to claims).
+- `pkg/enrich/euvd`: an enricher for ENISA's EUVD API, keyed by vulnerability
+  name. `DefaultURL`, `New`, `ErrStatus`.
+- `Receipt.Claims` and `Receipt.EnrichFailed []EnrichError`; `Observer.ClaimsEmitted`
+  and `Observer.EnrichFailed`; metrics `sluice_claims_total` and
+  `sluice_enrich_failures_total{source}`. A failed enrichment is counted and
+  listed; the document is still ingested.
+- `Deps.Enrichers`: the enrichers this deployment built. The config's policy
+  picks and orders them.
+- `ingest` flags `--enrich SOURCE` (repeatable, priority order), `--eu-only`
+  and `--euvd-url`.
+
+### Changed
+
+- `processors.enrich` is now `{sources: [...], eu_only: bool, euvd: {url: ...}}`.
+  `config.EnrichProcessor` is `{Policy, EUVDURL}`.
+
+### Removed
+
+- The four scan booleans `processors.enrich.{vulns,licenses,eol,deps_dev}` and
+  the flags `--enrich-vulns`, `--enrich-licenses`, `--enrich-eol`,
+  `--enrich-deps-dev`. The policy's `sources` list replaces them; there is no
+  alias.
+
 ## v0.1.1 — 2026-09-03
 
 ### Fixed

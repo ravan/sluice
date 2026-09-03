@@ -1,4 +1,4 @@
-# Sluice library surface (`v0.1.0`)
+# Sluice library surface (`v0.2.0`)
 
 Sluice is importable as a Go library. Every package under `pkg/` is public.
 `v0.x` means "public API, not yet stable": a minor bump may break it, and the
@@ -14,19 +14,52 @@ extend that stream, and writes it to a `Sink`. You supply the sink (usually
 | Identifier | Role |
 |---|---|
 | `Run(ctx, config.Config, Deps) (Receipt, error)` | The one entry point. One-shot when no receiver polls; daemon otherwise. |
-| `Deps{Sink, Observer, Now, Logger, Decorators}` | Injected I/O, clock, metrics, log, hooks. Only `Sink` is required. |
+| `Deps{Sink, Observer, Now, Logger, Decorators, Enrichers}` | Injected I/O, clock, metrics, log, hooks, enrichers. Only `Sink` is required. |
 | `Sink` | `Ingest(ctx, varve.Stream) (varve.Receipt, error)`. `*varve.Client` satisfies it. |
 | `Decorator` | `Decorate(ctx, DecorateInput) (varve.Stream, error)`. Runs after assemble, before the sink, once per document. Returned records merge into the document's stream. Must not modify `in.Records`. Must be safe for concurrent use. |
 | `DecorateInput` | `Raw`, `Digest` (lower-case hex sha256 of `Raw`), `Source`, `Origin`, `Doc`, `Preds`, `Records`, `ValidFrom`, `Fallback`, `Now`. |
 | `DecorateError{Source, Digest, Err}` | One rejected document. Implements `error` and `Unwrap`. |
-| `Receipt` | Run outcome: `Documents`, `Nodes`, `Edges`, `Transactions`, `Basis`, `Skipped`, `Fallbacks`, `Expanded`, `ExpansionBudget`, `ExpansionExhausted`, `Decorated`, `DecorateFailed`. `String()` renders it. |
-| `Observer` | Metrics seam: `DocumentIngested`, `DocumentSkipped`, `DocumentFailed`, `RecordsEmitted`, `FallbacksCounted`, `ExpansionDocuments`, `DocumentDecorated`, `DocumentDecorateFailed`. `*metrics.Metrics` satisfies it. |
+| `EnrichError{Source, Digest, Err}` | One failed enrichment call. Implements `error` and `Unwrap`. The document is still ingested. |
+| `Receipt` | Run outcome: `Documents`, `Nodes`, `Edges`, `Transactions`, `Basis`, `Skipped`, `Fallbacks`, `Expanded`, `ExpansionBudget`, `ExpansionExhausted`, `Decorated`, `DecorateFailed`, `Claims`, `EnrichFailed`. `String()` renders it. |
+| `Observer` | Metrics seam: `DocumentIngested`, `DocumentSkipped`, `DocumentFailed`, `RecordsEmitted`, `FallbacksCounted`, `ExpansionDocuments`, `DocumentDecorated`, `DocumentDecorateFailed`, `ClaimsEmitted`, `EnrichFailed`. `*metrics.Metrics` satisfies it. |
 
 Decorators run in `Deps.Decorators` order. Each sees the stream the previous
 ones extended. An error skips that document only, records a `DecorateError`,
 and the run continues. In one-shot mode every document's stream is merged with
 `varve.Merge` and sent in one `POST`, so a decorator's records land in the same
 transaction as the document's Sluice records.
+
+Enrichers run after assemble and before the decorators, in the order
+`config.Processors.Enrich.Policy.Sources` names — not `Deps.Enrichers` order. A
+policy naming a source no enricher was built for is skipped silently. Each
+enricher sees the claims the previous ones added.
+
+## `pkg/enrich`
+
+| Identifier | Role |
+|---|---|
+| `Source`, `Jurisdiction` | String types. The six `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
+| `Sources`, `Jurisdictions` | The closed source set, and each source's host jurisdiction. `vulnerablecode` has no entry, so `eu_only` never runs it. |
+| `ParsePolicy([]string, bool) (Policy, error)` | Validates source names. `ErrUnknownSource` (wrapped) or a duplicate error. |
+| `Policy{Sources, EUOnly}` | The org's rules. `Sources` is priority order. |
+| `(Policy).Allows(Source) bool` | Listed, and under `EUOnly` sitting in the EU. |
+| `(Policy).ScanFlags() guacseam.ScanFlags` | The same policy, gating GUAC's four in-parser scanners. |
+| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. |
+| `(Claim).ID()`, `(Claim).Records()` | Identity is source, subject, fact, value, so a re-fetch replays onto the same node. `Records` renders one `Claim` node plus one `ABOUT` edge per subject. |
+| `LabelClaim`, `EdgeAbout` | The graph vocabulary enrichment adds. |
+| `Input{Digest, Records, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too. |
+| `Enricher` | `Source() Source`; `Enrich(ctx, Input) ([]Claim, error)`. Must not modify `in.Records`. |
+| `VulnNames(varve.Stream) []string` | Every `Vulnerability` node of type `cve` or `euvd`, sorted and deduped. |
+| `Derive(varve.Stream) []Claim` | Scanner evidence to claims, by `(label, collector)`, ordered by id. |
+
+## `pkg/enrich/euvd`
+
+| Identifier | Role |
+|---|---|
+| `DefaultURL` | ENISA's public API base. |
+| `New(baseURL string, client *http.Client) (*Enricher, error)` | A bad URL is an error; a nil client is a 20 s-timeout client. |
+| `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `GET <base>/search?text=<name>&size=10` per vulnerability name. |
+| `ErrStatus` | A non-2xx answer from the API. |
 
 ## `pkg/varve`
 
@@ -81,7 +114,8 @@ The only package that calls GUAC behaviour.
 | `Load(io.Reader) (Config, error)`, `LoadFile(path)` | Parse and validate `pipeline.yaml`. Unknown keys fail. |
 | `Config{Receivers, Processors, Sink}` | The validated pipeline definition. A library caller may build it directly. |
 | `Receivers{Files, OCI, S3, GCS}` and the four receiver structs | Absent receiver is `nil`. `Poll == 0` means one pass. |
-| `Processors{ValidTime, Enrich, Expand}` | Guard bounds, scanner flags, expansion budget. |
+| `Processors{ValidTime, Enrich, Expand}` | Guard bounds, enrichment policy, expansion budget. |
+| `EnrichProcessor{Policy, EUVDURL}` | The org's `enrich.Policy` plus the EUVD endpoint. Absent block means the zero policy and `euvd.DefaultURL`. |
 | `Sink{Varve}`, `VarveSink{Addr, TokenEnv, Graph}` | The writer declaration. `pipeline.Run` never reads it; the caller builds the client. |
 
 ## `pkg/validtime`

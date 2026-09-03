@@ -23,8 +23,9 @@ processors:
   valid_time:
     floor: "2000-01-01T00:00:00Z"
     future_skew: 5m
-  # enrich and expand are off by default.
-  enrich: {vulns: false, licenses: false, eol: false, deps_dev: false}
+  # enrich and expand are off by default. sources is the org's priority order;
+  # eu_only drops every source whose host sits outside the EU.
+  enrich: {sources: [], eu_only: false}
   expand: {deps_dev: false, max_docs: 500}
 sink:
   varve:

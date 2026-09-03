@@ -13,6 +13,7 @@ import (
 
 	"github.com/ravan/sluice/pkg/assemble"
 	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/enrich"
 	"github.com/ravan/sluice/pkg/guacseam"
 	"github.com/ravan/sluice/pkg/validtime"
 	"github.com/ravan/sluice/pkg/varve"
@@ -39,18 +40,37 @@ type Receipt struct {
 	ExpansionExhausted bool
 	Decorated          int             // documents that passed every decorator (0 when none are configured)
 	DecorateFailed     []DecorateError // documents a decorator rejected; skipped, never silent
+	Claims             int             // enrichment claims folded in across every document
+	EnrichFailed       []EnrichError   // enrichment calls that failed; counted, never fatal
 }
+
+// EnrichError names the source and document an enrichment call failed for. The
+// document is still ingested (plan D7).
+type EnrichError struct {
+	Source enrich.Source
+	Digest string
+	Err    error
+}
+
+func (e EnrichError) Error() string {
+	return fmt.Sprintf("enrich %s (sha256:%s): %v", e.Source, e.Digest, e.Err)
+}
+
+func (e EnrichError) Unwrap() error { return e.Err }
 
 // String renders the receipt the one-shot CLI prints.
 func (r Receipt) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "documents=%d nodes=%d edges=%d transactions=%d basis=%d skipped=%d fallbacks=%d expanded=%d decorated=%d decorate_failed=%d",
-		r.Documents, r.Nodes, r.Edges, r.Transactions, r.Basis, len(r.Skipped), r.Fallbacks, r.Expanded, r.Decorated, len(r.DecorateFailed))
+	fmt.Fprintf(&b, "documents=%d nodes=%d edges=%d transactions=%d basis=%d skipped=%d fallbacks=%d expanded=%d decorated=%d decorate_failed=%d claims=%d enrich_failed=%d",
+		r.Documents, r.Nodes, r.Edges, r.Transactions, r.Basis, len(r.Skipped), r.Fallbacks, r.Expanded, r.Decorated, len(r.DecorateFailed), r.Claims, len(r.EnrichFailed))
 	for _, f := range r.Skipped {
 		fmt.Fprintf(&b, "\n  skipped %s: %v", f.Source, f.Err)
 	}
 	for _, f := range r.DecorateFailed {
 		fmt.Fprintf(&b, "\n  decorate failed %s: %v", f.Source, f.Err)
+	}
+	for _, f := range r.EnrichFailed {
+		fmt.Fprintf(&b, "\n  enrich failed %s %s: %v", f.Source, f.Digest, f.Err)
 	}
 	if r.ExpansionExhausted {
 		fmt.Fprintf(&b, "\n  expansion budget %d reached; some transitive dependencies were not collected", r.ExpansionBudget)
@@ -68,6 +88,8 @@ type Observer interface {
 	ExpansionDocuments(n int)
 	DocumentDecorated()
 	DocumentDecorateFailed()
+	ClaimsEmitted(n int)
+	EnrichFailed(source string)
 }
 
 type noopObserver struct{}
@@ -80,14 +102,17 @@ func (noopObserver) FallbacksCounted(_ int)    {}
 func (noopObserver) ExpansionDocuments(_ int)  {}
 func (noopObserver) DocumentDecorated()        {}
 func (noopObserver) DocumentDecorateFailed()   {}
+func (noopObserver) ClaimsEmitted(_ int)       {}
+func (noopObserver) EnrichFailed(_ string)     {}
 
 // Deps are the injected I/O/clock/observability dependencies (the core stays pure).
 type Deps struct {
-	Sink       Sink             // required
-	Observer   Observer         // nil ⇒ noopObserver
-	Now        func() time.Time // nil ⇒ func() time.Time { return time.Now().UTC() }
-	Logger     *slog.Logger     // nil ⇒ slog over io.Discard
-	Decorators []Decorator      // run in order; each sees the stream the previous ones extended
+	Sink       Sink              // required
+	Observer   Observer          // nil ⇒ noopObserver
+	Now        func() time.Time  // nil ⇒ func() time.Time { return time.Now().UTC() }
+	Logger     *slog.Logger      // nil ⇒ slog over io.Discard
+	Decorators []Decorator       // run in order; each sees the stream the previous ones extended
+	Enrichers  []enrich.Enricher // available sources; the config's policy picks and orders them
 }
 
 // sourcesFromConfig maps configured receivers into a guacseam.Sources (Scan and
@@ -116,6 +141,31 @@ func anyPolling(r config.Receivers) bool {
 		(r.OCI != nil && r.OCI.Poll > 0) ||
 		(r.S3 != nil && r.S3.Poll > 0) ||
 		(r.GCS != nil && r.GCS.Poll > 0)
+}
+
+// enricherFor returns the enricher registered for src, or nil when the policy
+// names a source this deployment did not build one for.
+func enricherFor(es []enrich.Enricher, src enrich.Source) enrich.Enricher {
+	for _, e := range es {
+		if e.Source() == src {
+			return e
+		}
+	}
+	return nil
+}
+
+// foldClaims merges every claim's records into s, returning the merged stream
+// and how many claims it folded in.
+func foldClaims(s varve.Stream, claims []enrich.Claim) (varve.Stream, int) {
+	if len(claims) == 0 {
+		return s, 0
+	}
+	streams := make([]varve.Stream, 0, len(claims)+1)
+	streams = append(streams, s)
+	for _, c := range claims {
+		streams = append(streams, c.Records())
+	}
+	return varve.Merge(streams...), len(claims)
 }
 
 // Run builds the collect→assemble→decorate→sink pipeline from cfg and runs it.
@@ -147,7 +197,8 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	guard := validtime.Guard{Floor: cfg.Processors.ValidTime.Floor, Skew: cfg.Processors.ValidTime.FutureSkew}
-	scan := guacseam.ScanFlags{Vulns: cfg.Processors.Enrich.Vulns, Licenses: cfg.Processors.Enrich.Licenses, EOL: cfg.Processors.Enrich.EOL, DepsDev: cfg.Processors.Enrich.DepsDev}
+	policy := cfg.Processors.Enrich.Policy
+	scan := policy.ScanFlags()
 	expandCfg := cfg.Processors.Expand
 	oneShot := !anyPolling(cfg.Receivers)
 
@@ -156,29 +207,59 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		rec.ExpansionBudget = expandCfg.MaxDocs
 	}
 
-	// prepare assembles one document and runs the decorator chain over its
-	// stream. ok=false means a decorator rejected it: recorded, counted, skipped.
+	// enrichDocument turns the document's own scanner evidence into claims, then
+	// runs every allowed enricher in policy order, each seeing the claims the
+	// previous ones added. A failure is recorded and counted; the document is
+	// still ingested (plan D7).
+	enrichDocument := func(ctx context.Context, digest string, s varve.Stream, t time.Time) varve.Stream {
+		merged, n := foldClaims(s, enrich.Derive(s))
+		for _, src := range policy.Sources {
+			e := enricherFor(deps.Enrichers, src)
+			if e == nil || !policy.Allows(src) {
+				continue
+			}
+			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Now: t})
+			if err != nil {
+				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: err})
+				observer.EnrichFailed(string(src))
+				logger.Warn("enrichment failed", "source", src, "digest", digest, "error", err)
+				continue
+			}
+			var added int
+			merged, added = foldClaims(merged, claims)
+			n += added
+		}
+		rec.Claims += n
+		observer.ClaimsEmitted(n)
+		return merged
+	}
+
+	// prepare assembles one document, enriches it and runs the decorator chain
+	// over its stream. ok=false means a decorator rejected it: recorded,
+	// counted, skipped.
 	prepare := func(ctx context.Context, p guacseam.Parsed) (varve.Stream, bool) {
 		t := now()
 		res := assemble.Assemble(ctx, p.Preds, guard, t)
 		rec.Fallbacks += res.Fallbacks
 		observer.FallbacksCounted(res.Fallbacks)
-		if len(deps.Decorators) == 0 {
-			return res.Stream, true
-		}
 		var raw []byte
 		if p.Doc != nil {
 			raw = p.Doc.Blob
 		}
 		sum := sha256.Sum256(raw)
+		digest := hex.EncodeToString(sum[:])
+		records := enrichDocument(ctx, digest, res.Stream, t)
+		if len(deps.Decorators) == 0 {
+			return records, true
+		}
 		in := DecorateInput{
 			Raw:       raw,
-			Digest:    hex.EncodeToString(sum[:]),
+			Digest:    digest,
 			Source:    p.Source,
 			Origin:    p.Origin,
 			Doc:       p.Doc,
 			Preds:     p.Preds,
-			Records:   res.Stream,
+			Records:   records,
 			ValidFrom: res.ValidFrom,
 			Fallback:  res.Fallback,
 			Now:       t,
@@ -186,7 +267,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		for _, d := range deps.Decorators {
 			extra, err := d.Decorate(ctx, in)
 			if err != nil {
-				de := DecorateError{Source: p.Source, Digest: in.Digest, Err: err}
+				de := DecorateError{Source: p.Source, Digest: digest, Err: err}
 				rec.DecorateFailed = append(rec.DecorateFailed, de)
 				observer.DocumentDecorateFailed()
 				logger.Warn("document rejected by decorator", "source", p.Source, "digest", in.Digest, "error", err)

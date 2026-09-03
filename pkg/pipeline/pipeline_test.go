@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/enrich"
 	"github.com/ravan/sluice/pkg/guacseam"
 	"github.com/ravan/sluice/pkg/pipeline"
 	"github.com/ravan/sluice/pkg/validtime"
@@ -55,13 +56,27 @@ func copyFixture(t *testing.T, dir, name string) {
 
 func runOneShot(t *testing.T, dir string, sink pipeline.Sink) (pipeline.Receipt, error) {
 	t.Helper()
+	return runOneShotPolicy(t, dir, sink, enrich.Policy{}, pipeline.Deps{})
+}
+
+// runOneShotWith is runOneShot with an enrichment policy and caller-supplied
+// deps; deps.Sink and deps.Now are filled in.
+func runOneShotPolicy(t *testing.T, dir string, sink pipeline.Sink, policy enrich.Policy, deps pipeline.Deps) (pipeline.Receipt, error) {
+	t.Helper()
 	d := validtime.Default()
 	cfg := config.Config{
-		Receivers:  config.Receivers{Files: &config.FilesReceiver{Path: dir}},
-		Processors: config.Processors{ValidTime: config.ValidTimeProcessor{Floor: d.Floor, FutureSkew: d.Skew}},
-		Sink:       config.Sink{Varve: config.VarveSink{Addr: "http://x", TokenEnv: "T"}},
+		Receivers: config.Receivers{Files: &config.FilesReceiver{Path: dir}},
+		Processors: config.Processors{
+			ValidTime: config.ValidTimeProcessor{Floor: d.Floor, FutureSkew: d.Skew},
+			Enrich:    config.EnrichProcessor{Policy: policy},
+		},
+		Sink: config.Sink{Varve: config.VarveSink{Addr: "http://x", TokenEnv: "T"}},
 	}
-	return pipeline.Run(context.Background(), cfg, pipeline.Deps{Sink: sink, Now: func() time.Time { return pipeTestNow }})
+	deps.Sink = sink
+	if deps.Now == nil {
+		deps.Now = func() time.Time { return pipeTestNow }
+	}
+	return pipeline.Run(context.Background(), cfg, deps)
 }
 
 func TestRunRequiresAReceiver(t *testing.T) {
@@ -415,6 +430,8 @@ func (o *countingObserver) FallbacksCounted(_ int)    {}
 func (o *countingObserver) ExpansionDocuments(_ int)  {}
 func (o *countingObserver) DocumentDecorated()        { o.mu.Lock(); o.decorated++; o.mu.Unlock() }
 func (o *countingObserver) DocumentDecorateFailed()   { o.mu.Lock(); o.decorateFailed++; o.mu.Unlock() }
+func (o *countingObserver) ClaimsEmitted(_ int)       {}
+func (o *countingObserver) EnrichFailed(_ string)     {}
 
 func TestRunPollContinuesAfterSinkFailure(t *testing.T) {
 	dir := t.TempDir()

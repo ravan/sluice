@@ -140,3 +140,28 @@ func TestDecoratorCounters(t *testing.T) {
 		}
 	}
 }
+
+func TestEnrichCounters(t *testing.T) {
+	m := New()
+	m.EnrichFailed("euvd")
+	m.EnrichFailed("euvd")
+	m.ClaimsEmitted(3)
+
+	srv := httptest.NewServer(m.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET %s: %v", srv.URL, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	for _, want := range []string{`sluice_enrich_failures_total{source="euvd"} 2`, "sluice_claims_total 3"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("body missing %q; got:\n%s", want, string(body))
+		}
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ravan/sluice/pkg/enrich"
+	"github.com/ravan/sluice/pkg/enrich/euvd"
 	"github.com/ravan/sluice/pkg/validtime"
 	"gopkg.in/yaml.v3"
 )
@@ -65,12 +67,12 @@ type Processors struct {
 	Expand    ExpandProcessor
 }
 
-// EnrichProcessor mirrors the four ParseDocumentTree scan flags. Absent ⇒ all false.
+// EnrichProcessor is the org's enrichment policy plus the endpoints the
+// enrichers it names need. Absent ⇒ the zero policy (nothing enriches) and the
+// default EUVD endpoint.
 type EnrichProcessor struct {
-	Vulns    bool
-	Licenses bool
-	EOL      bool
-	DepsDev  bool
+	Policy  enrich.Policy
+	EUVDURL string
 }
 
 // ExpandProcessor: in-process deps.dev expansion. DepsDev false ⇒ no expansion.
@@ -152,10 +154,13 @@ type wireValidTime struct {
 }
 
 type wireEnrich struct {
-	Vulns    bool `yaml:"vulns"`
-	Licenses bool `yaml:"licenses"`
-	EOL      bool `yaml:"eol"`
-	DepsDev  bool `yaml:"deps_dev"`
+	Sources []string  `yaml:"sources"`
+	EUOnly  bool      `yaml:"eu_only"`
+	EUVD    *wireEUVD `yaml:"euvd"`
+}
+
+type wireEUVD struct {
+	URL string `yaml:"url"`
 }
 
 type wireExpand struct {
@@ -293,12 +298,15 @@ func Load(r io.Reader) (Config, error) {
 	}
 	cfg.Processors.ValidTime = vt
 
-	if wire.Processors.Enrich != nil {
-		cfg.Processors.Enrich = EnrichProcessor{
-			Vulns:    wire.Processors.Enrich.Vulns,
-			Licenses: wire.Processors.Enrich.Licenses,
-			EOL:      wire.Processors.Enrich.EOL,
-			DepsDev:  wire.Processors.Enrich.DepsDev,
+	cfg.Processors.Enrich = EnrichProcessor{EUVDURL: euvd.DefaultURL}
+	if e := wire.Processors.Enrich; e != nil {
+		policy, perr := enrich.ParsePolicy(e.Sources, e.EUOnly)
+		if perr != nil {
+			return Config{}, fmt.Errorf("config: processors.enrich.sources: %w", perr)
+		}
+		cfg.Processors.Enrich.Policy = policy
+		if e.EUVD != nil && e.EUVD.URL != "" {
+			cfg.Processors.Enrich.EUVDURL = e.EUVD.URL
 		}
 	}
 

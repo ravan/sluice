@@ -8,14 +8,16 @@ import (
 )
 
 type Metrics struct {
-	reg       *prometheus.Registry
-	documents *prometheus.CounterVec
-	records   *prometheus.CounterVec
-	fallbacks prometheus.Counter
-	retries   prometheus.Counter
-	expansion prometheus.Counter
-	decorated prometheus.Counter
-	decFailed prometheus.Counter
+	reg        *prometheus.Registry
+	documents  *prometheus.CounterVec
+	records    *prometheus.CounterVec
+	fallbacks  prometheus.Counter
+	retries    prometheus.Counter
+	expansion  prometheus.Counter
+	decorated  prometheus.Counter
+	decFailed  prometheus.Counter
+	claims     prometheus.Counter
+	enrichFail *prometheus.CounterVec
 }
 
 func New() *Metrics {
@@ -41,17 +43,25 @@ func New() *Metrics {
 	decFailed := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "sluice_documents_decorate_failed_total",
 	})
+	claims := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sluice_claims_total",
+	})
+	enrichFail := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "sluice_enrich_failures_total",
+	}, []string{"source"})
 	// safe: fresh registry, no possible duplicate
-	reg.MustRegister(documents, records, fallbacks, retries, expansion, decorated, decFailed)
+	reg.MustRegister(documents, records, fallbacks, retries, expansion, decorated, decFailed, claims, enrichFail)
 	return &Metrics{
-		reg:       reg,
-		documents: documents,
-		records:   records,
-		fallbacks: fallbacks,
-		retries:   retries,
-		expansion: expansion,
-		decorated: decorated,
-		decFailed: decFailed,
+		reg:        reg,
+		documents:  documents,
+		records:    records,
+		fallbacks:  fallbacks,
+		retries:    retries,
+		expansion:  expansion,
+		decorated:  decorated,
+		decFailed:  decFailed,
+		claims:     claims,
+		enrichFail: enrichFail,
 	}
 }
 
@@ -94,4 +104,12 @@ func (m *Metrics) DocumentDecorated() {
 
 func (m *Metrics) DocumentDecorateFailed() {
 	m.decFailed.Inc()
+}
+
+func (m *Metrics) ClaimsEmitted(n int) {
+	m.claims.Add(float64(n))
+}
+
+func (m *Metrics) EnrichFailed(source string) {
+	m.enrichFail.WithLabelValues(source).Inc()
 }

@@ -101,11 +101,11 @@ Both are opt-in and default **off**, so CI and offline runs never reach the netw
 
 ```sh
 sluice ingest files ./sboms \
-  --enrich-vulns --enrich-licenses --enrich-eol --enrich-deps-dev \
+  --enrich euvd --enrich osv --enrich clearlydefined --enrich eol --enrich deps_dev \
   --expand-deps-dev --expand-max-docs 25
 ```
 
-Enrichment folds OSV `CertifyVuln`, ClearlyDefined `CertifyLegal`, endoflife.date `HasMetadata`, and deps.dev `CertifyScorecard` evidence onto the document's packages. Expansion feeds those packages to the in-process deps.dev collector and ingests their transitive dependencies as new documents, up to `--expand-max-docs` (reported as `expanded=N` in the receipt).
+`--enrich` names one source per flag, in priority order; nothing enriches until you name a source. `--eu-only` drops every source whose host sits outside the EU, so an EU-only deployment can list more sources than it will call. OSV, ClearlyDefined, endoflife.date and deps.dev fold `CertifyVuln`, `CertifyLegal`, `HasMetadata` and `CertifyScorecard` evidence onto the document's packages; EUVD asks ENISA about each vulnerability by name. Every source's answers also become `Claim` nodes, each `ABOUT` what it describes, carrying the source, its jurisdiction and when it was fetched (reported as `claims=N` in the receipt). A source that fails is counted in `enrich_failed=N` and listed; the document is still ingested. Expansion feeds the document's packages to the in-process deps.dev collector and ingests their transitive dependencies as new documents, up to `--expand-max-docs` (reported as `expanded=N`).
 
 ### Collector daemon
 
@@ -142,7 +142,7 @@ receivers:
 
 processors:
   valid_time: { floor: "2000-01-01T00:00:00Z", future_skew: 24h }
-  enrich:     { vulns: true, licenses: true, eol: true, deps_dev: true }
+  enrich:     { sources: [euvd, osv], eu_only: true, euvd: { url: "https://euvdservices.enisa.europa.eu/api" } }
   expand:     { deps_dev: true, max_docs: 500 }
 
 sink:
@@ -169,10 +169,9 @@ sluice version                            print version information
 | `--varve-graph` | — | named Varve graph to ingest into (omit for the writer's default graph) |
 | `--valid-floor` | — | reject valid timestamps before this instant (fall back to ingest time) |
 | `--valid-skew` | — | reject valid timestamps this far into the future |
-| `--enrich-vulns` | `false` | OSV vulnerability evidence |
-| `--enrich-licenses` | `false` | ClearlyDefined license evidence |
-| `--enrich-eol` | `false` | endoflife.date end-of-life evidence |
-| `--enrich-deps-dev` | `false` | deps.dev scorecard evidence |
+| `--enrich` | — | enrichment source to run, repeatable, in priority order (`euvd`, `vulnerablecode`, `osv`, `clearlydefined`, `eol`, `deps_dev`) |
+| `--eu-only` | `false` | run only sources whose host sits in the EU |
+| `--euvd-url` | ENISA's API | EUVD API base URL |
 | `--expand-deps-dev` | `false` | ingest transitive dependencies from deps.dev |
 | `--expand-max-docs` | `500` | per-run expansion budget |
 

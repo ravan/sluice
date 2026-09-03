@@ -1,10 +1,13 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ravan/sluice/pkg/enrich"
+	"github.com/ravan/sluice/pkg/enrich/euvd"
 	"github.com/ravan/sluice/pkg/validtime"
 )
 
@@ -256,7 +259,7 @@ func TestLoadEnrichAndExpand(t *testing.T) {
 	const src = `receivers:
   files: {path: ./x}
 processors:
-  enrich: {vulns: true, deps_dev: true}
+  enrich: {sources: [euvd, osv], eu_only: true}
   expand: {deps_dev: true, max_docs: 25}
 sink:
   varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN}
@@ -265,23 +268,72 @@ sink:
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !cfg.Processors.Enrich.Vulns {
-		t.Errorf("Enrich.Vulns = false, want true")
+	wantSources := []enrich.Source{enrich.SourceEUVD, enrich.SourceOSV}
+	if !slices.Equal(cfg.Processors.Enrich.Policy.Sources, wantSources) {
+		t.Errorf("Enrich.Policy.Sources = %v, want %v", cfg.Processors.Enrich.Policy.Sources, wantSources)
 	}
-	if cfg.Processors.Enrich.Licenses {
-		t.Errorf("Enrich.Licenses = true, want false")
+	if !cfg.Processors.Enrich.Policy.EUOnly {
+		t.Errorf("Enrich.Policy.EUOnly = false, want true")
 	}
-	if cfg.Processors.Enrich.EOL {
-		t.Errorf("Enrich.EOL = true, want false")
-	}
-	if !cfg.Processors.Enrich.DepsDev {
-		t.Errorf("Enrich.DepsDev = false, want true")
+	if cfg.Processors.Enrich.EUVDURL != euvd.DefaultURL {
+		t.Errorf("Enrich.EUVDURL = %q, want %q", cfg.Processors.Enrich.EUVDURL, euvd.DefaultURL)
 	}
 	if !cfg.Processors.Expand.DepsDev {
 		t.Errorf("Expand.DepsDev = false, want true")
 	}
 	if cfg.Processors.Expand.MaxDocs != 25 {
 		t.Errorf("Expand.MaxDocs = %d, want 25", cfg.Processors.Expand.MaxDocs)
+	}
+}
+
+func TestLoadEnrichEUVDURL(t *testing.T) {
+	const src = `receivers:
+  files: {path: ./x}
+processors:
+  enrich: {sources: [euvd], euvd: {url: "http://stub/api"}}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN}
+`
+	cfg, err := Load(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Processors.Enrich.EUVDURL != "http://stub/api" {
+		t.Errorf("Enrich.EUVDURL = %q, want %q", cfg.Processors.Enrich.EUVDURL, "http://stub/api")
+	}
+}
+
+func TestLoadEnrichRejectsUnknownSource(t *testing.T) {
+	const src = `receivers:
+  files: {path: ./x}
+processors:
+  enrich: {sources: [nvd]}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN}
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "processors.enrich.sources") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "processors.enrich.sources")
+	}
+}
+
+func TestLoadEnrichRejectsTheRetiredScanBooleans(t *testing.T) {
+	const src = `receivers:
+  files: {path: ./x}
+processors:
+  enrich: {vulns: true}
+sink:
+  varve: {addr: "http://localhost:8080", token_env: VARVE_TOKEN}
+`
+	_, err := Load(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("Load() error = nil, want the unknown-key error")
+	}
+	if !strings.Contains(err.Error(), "vulns") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "vulns")
 	}
 }
 
@@ -315,8 +367,11 @@ sink:
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Processors.Enrich != (EnrichProcessor{}) {
-		t.Errorf("Enrich = %+v, want zero value", cfg.Processors.Enrich)
+	if len(cfg.Processors.Enrich.Policy.Sources) != 0 || cfg.Processors.Enrich.Policy.EUOnly {
+		t.Errorf("Enrich.Policy = %+v, want the zero policy", cfg.Processors.Enrich.Policy)
+	}
+	if cfg.Processors.Enrich.EUVDURL != euvd.DefaultURL {
+		t.Errorf("Enrich.EUVDURL = %q, want %q", cfg.Processors.Enrich.EUVDURL, euvd.DefaultURL)
 	}
 	if cfg.Processors.Expand.DepsDev {
 		t.Errorf("Expand.DepsDev = true, want false")

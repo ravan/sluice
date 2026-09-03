@@ -16,6 +16,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/enrich"
+	"github.com/ravan/sluice/pkg/enrich/euvd"
 	"github.com/ravan/sluice/pkg/metrics"
 	"github.com/ravan/sluice/pkg/pipeline"
 	"github.com/ravan/sluice/pkg/varve"
@@ -130,11 +132,16 @@ func runCmd() *cobra.Command {
 				"graph", cfg.Sink.Varve.Graph,
 				"receivers", strings.Join(receiverKinds(cfg.Receivers), ","))
 
+			euvdEnricher, err := euvd.New(cfg.Processors.Enrich.EUVDURL, nil)
+			if err != nil {
+				return fmt.Errorf("configuring the EUVD enricher: %w", err)
+			}
 			rec, runErr := pipeline.Run(ctx, cfg, pipeline.Deps{
-				Sink:     client,
-				Observer: m,
-				Now:      func() time.Time { return time.Now().UTC() },
-				Logger:   logger,
+				Sink:      client,
+				Observer:  m,
+				Now:       func() time.Time { return time.Now().UTC() },
+				Logger:    logger,
+				Enrichers: []enrich.Enricher{euvdEnricher},
 			})
 			logger.Info("drained",
 				"documents", rec.Documents,

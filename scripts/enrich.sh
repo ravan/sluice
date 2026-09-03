@@ -2,7 +2,7 @@
 # S4 enrichment/expansion demo: one small SBOM in -> a certified neighborhood out.
 # Ingest express@4.17.1 twice against a fresh stack:
 #   1. Baseline (no enrichment/expansion) proves the fixture parses under GUAC.
-#   2. --enrich-vulns --expand-deps-dev folds OSV CertifyVuln evidence onto the
+#   2. --enrich osv --enrich deps_dev --expand-deps-dev folds OSV CertifyVuln evidence onto the
 #      SBOM's package AND fetches its transitive dependencies (deps.dev) as new
 #      documents, so PkgVersion grows above the baseline and source facts appear
 #      that the SBOM never carried. The per-run expansion budget is reported in
@@ -75,8 +75,8 @@ echo "   HasSourceAt (baseline): ${base_hsa}"
 
 # --- Enrich + expand the same SBOM --------------------------------------------
 echo ""
-echo "== Enrich + expand: --enrich-vulns --expand-deps-dev --expand-max-docs 25 =="
-receipt="$(./sluice ingest files ./testdata/enrich --varve-addr "${BASE}" --enrich-vulns --expand-deps-dev --expand-max-docs 25)"
+echo "== Enrich + expand: --enrich osv --enrich deps_dev --expand-deps-dev --expand-max-docs 25 =="
+receipt="$(./sluice ingest files ./testdata/enrich --varve-addr "${BASE}" --enrich osv --enrich deps_dev --expand-deps-dev --expand-max-docs 25)"
 echo "$receipt"
 
 # Budget reported in the receipt (expansion budget usage).
@@ -92,7 +92,7 @@ echo "   PkgVersion (after expansion): ${after}"
 # OSV enrichment folded onto the SBOM's package.
 cv="$(count CertifyVuln)"
 echo "   CertifyVuln: ${cv}"
-[ "${cv:-0}" -ge 1 ] || fail "expected CertifyVuln>=1 (OSV enrichment); needs OSV reachability (--enrich-vulns)"
+[ "${cv:-0}" -ge 1 ] || fail "expected CertifyVuln>=1 (OSV enrichment); needs OSV reachability (--enrich osv)"
 
 # Source facts for transitive deps (baseline had ${base_hsa}; deps.dev source facts came from expansion).
 hsa="$(count HasSourceAt)"

@@ -8,22 +8,23 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/enrich"
+	"github.com/ravan/sluice/pkg/enrich/euvd"
 	"github.com/ravan/sluice/pkg/pipeline"
 	"github.com/ravan/sluice/pkg/varve"
 )
 
 // ingestFlags carries the shared persistent flag values of the `ingest` command.
 type ingestFlags struct {
-	varveAddr      string
-	varveGraph     string
-	validFloor     string
-	validSkew      time.Duration
-	enrichVulns    bool
-	enrichLicenses bool
-	enrichEOL      bool
-	enrichDepsDev  bool
-	expandDepsDev  bool
-	expandMaxDocs  int
+	varveAddr     string
+	varveGraph    string
+	validFloor    string
+	validSkew     time.Duration
+	enrichSources []string
+	enrichEUOnly  bool
+	euvdURL       string
+	expandDepsDev bool
+	expandMaxDocs int
 }
 
 func filesReceivers(dir string) config.Receivers {
@@ -49,11 +50,15 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 	if err != nil {
 		return config.Config{}, fmt.Errorf("parsing --valid-floor: %w", err)
 	}
+	policy, err := enrich.ParsePolicy(f.enrichSources, f.enrichEUOnly)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("parsing --enrich: %w", err)
+	}
 	return config.Config{
 		Receivers: recv,
 		Processors: config.Processors{
 			ValidTime: config.ValidTimeProcessor{Floor: floor.UTC(), FutureSkew: f.validSkew},
-			Enrich:    config.EnrichProcessor{Vulns: f.enrichVulns, Licenses: f.enrichLicenses, EOL: f.enrichEOL, DepsDev: f.enrichDepsDev},
+			Enrich:    config.EnrichProcessor{Policy: policy, EUVDURL: f.euvdURL},
 			Expand:    config.ExpandProcessor{DepsDev: f.expandDepsDev, MaxDocs: f.expandMaxDocs},
 		},
 		Sink: config.Sink{Varve: config.VarveSink{Addr: f.varveAddr, TokenEnv: "VARVE_TOKEN", Graph: f.varveGraph}},
@@ -79,7 +84,15 @@ func runIngest(cmd *cobra.Command, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("configuring Varve client: %w", err)
 	}
-	receipt, runErr := pipeline.Run(cmd.Context(), cfg, pipeline.Deps{Sink: client, Now: func() time.Time { return now }})
+	euvdEnricher, err := euvd.New(cfg.Processors.Enrich.EUVDURL, nil)
+	if err != nil {
+		return fmt.Errorf("configuring the EUVD enricher: %w", err)
+	}
+	receipt, runErr := pipeline.Run(cmd.Context(), cfg, pipeline.Deps{
+		Sink:      client,
+		Now:       func() time.Time { return now },
+		Enrichers: []enrich.Enricher{euvdEnricher},
+	})
 	fmt.Fprintln(cmd.OutOrStdout(), receipt.String())
 	if runErr != nil {
 		return runErr
@@ -105,14 +118,12 @@ func ingestCmd() *cobra.Command {
 		"reject document timestamps earlier than this RFC3339 instant")
 	cmd.PersistentFlags().DurationVar(&flags.validSkew, "valid-skew", 5*time.Minute,
 		"reject document timestamps later than now plus this tolerance")
-	cmd.PersistentFlags().BoolVar(&flags.enrichVulns, "enrich-vulns", false,
-		"scan document purls for vulnerabilities (OSV) and fold the evidence in")
-	cmd.PersistentFlags().BoolVar(&flags.enrichLicenses, "enrich-licenses", false,
-		"scan document purls for license/source facts (ClearlyDefined)")
-	cmd.PersistentFlags().BoolVar(&flags.enrichEOL, "enrich-eol", false,
-		"scan document purls for end-of-life metadata (endoflife.date)")
-	cmd.PersistentFlags().BoolVar(&flags.enrichDepsDev, "enrich-deps-dev", false,
-		"scan document purls for scorecard/source facts (deps.dev)")
+	cmd.PersistentFlags().StringSliceVar(&flags.enrichSources, "enrich", nil,
+		"enrichment source to run, in priority order; repeatable (euvd|vulnerablecode|osv|clearlydefined|eol|deps_dev)")
+	cmd.PersistentFlags().BoolVar(&flags.enrichEUOnly, "eu-only", false,
+		"run only enrichment sources whose host sits in the EU")
+	cmd.PersistentFlags().StringVar(&flags.euvdURL, "euvd-url", euvd.DefaultURL,
+		"EUVD API base URL")
 	cmd.PersistentFlags().BoolVar(&flags.expandDepsDev, "expand-deps-dev", false,
 		"fetch transitive dependencies of document purls (deps.dev) as new documents")
 	cmd.PersistentFlags().IntVar(&flags.expandMaxDocs, "expand-max-docs", 500,

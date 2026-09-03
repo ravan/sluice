@@ -1,11 +1,13 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ravan/sluice/pkg/config"
+	"github.com/ravan/sluice/pkg/enrich"
 )
 
 func TestOCIReceivers(t *testing.T) {
@@ -66,7 +68,9 @@ func TestBuildIngestConfig(t *testing.T) {
 		varveGraph:    "org_a",
 		validFloor:    "2000-01-01T00:00:00Z",
 		validSkew:     5 * time.Minute,
-		enrichVulns:   true,
+		enrichSources: []string{"euvd", "osv"},
+		enrichEUOnly:  true,
+		euvdURL:       "http://stub/api",
 		expandDepsDev: true,
 		expandMaxDocs: 25,
 	})
@@ -76,8 +80,12 @@ func TestBuildIngestConfig(t *testing.T) {
 	if cfg.Receivers.Files == nil || cfg.Receivers.Files.Path != "d" {
 		t.Errorf("Receivers.Files = %+v, want Path d", cfg.Receivers.Files)
 	}
-	if !cfg.Processors.Enrich.Vulns {
-		t.Errorf("Enrich.Vulns = false, want true")
+	wantSources := []enrich.Source{enrich.SourceEUVD, enrich.SourceOSV}
+	if !slices.Equal(cfg.Processors.Enrich.Policy.Sources, wantSources) || !cfg.Processors.Enrich.Policy.EUOnly {
+		t.Errorf("Enrich.Policy = %+v, want %v with eu_only", cfg.Processors.Enrich.Policy, wantSources)
+	}
+	if cfg.Processors.Enrich.EUVDURL != "http://stub/api" {
+		t.Errorf("Enrich.EUVDURL = %q, want %q", cfg.Processors.Enrich.EUVDURL, "http://stub/api")
 	}
 	if !cfg.Processors.Expand.DepsDev || cfg.Processors.Expand.MaxDocs != 25 {
 		t.Errorf("Expand = %+v, want DepsDev true MaxDocs 25", cfg.Processors.Expand)
