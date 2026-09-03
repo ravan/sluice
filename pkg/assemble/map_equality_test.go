@@ -1,7 +1,6 @@
 package assemble
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/guacsec/guac/pkg/assembler"
@@ -109,41 +108,5 @@ func TestMapVulnEqual(t *testing.T) {
 		if _, ok := findEdge(got, EdgeIDFor(evID, EdgeVulnEqualVulnerability, m)); !ok {
 			t.Errorf("missing VulnEqualVulnerability edge to %s", m)
 		}
-	}
-}
-
-func TestMapVulnMetadata(t *testing.T) {
-	preds := []assembler.IngestPredicates{{
-		VulnMetadata: []assembler.VulnMetadataIngest{{
-			Vulnerability: &generated.VulnerabilityInputSpec{Type: "cve", VulnerabilityID: "CVE-2021-44228"},
-			VulnMetadata: &generated.VulnerabilityMetadataInputSpec{
-				ScoreType:  generated.VulnerabilityScoreTypeCvssv3,
-				ScoreValue: 7.5,
-				Timestamp:  fixedTime,
-			},
-		}},
-	}}
-	got := streamAt(t, preds)
-
-	vulnID := varve.NodeID("vuln:cve/cve-2021-44228")
-	evID := EvidenceID("VulnMetadata", string(vulnID), "CVSSv3", "7.5", fixedTimeStr, "", "", "")
-
-	n, ok := findNode(got, evID)
-	if !ok {
-		t.Fatalf("no VulnMetadata node with id %q; got:\n%s", evID, ndjson(t, got))
-	}
-	assertProps(t, n, []varve.Prop{
-		{Key: "objectId", Value: varve.Str(string(vulnID))},
-		{Key: "scoreType", Value: varve.Str("CVSSv3")},
-		{Key: "scoreValue", Value: varve.Float(7.5)},
-		{Key: "timestamp", Value: varve.Str(fixedTimeStr)},
-	})
-	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeVulnMetadataVulnerability, vulnID)); !ok {
-		t.Errorf("missing VulnMetadataVulnerability edge")
-	}
-	// scoreValue emits as a bare number, not a string.
-	line := nodeLine(t, n)
-	if !strings.Contains(line, `"scoreValue":7.5`) {
-		t.Errorf("scoreValue not emitted as bare number in %s", line)
 	}
 }

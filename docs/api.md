@@ -1,4 +1,4 @@
-# Sluice library surface (`v0.2.0`)
+# Sluice library surface (`v0.3.0`)
 
 Sluice is importable as a Go library. Every package under `pkg/` is public.
 `v0.x` means "public API, not yet stable": a minor bump may break it, and the
@@ -21,7 +21,7 @@ extend that stream, and writes it to a `Sink`. You supply the sink (usually
 | `DecorateError{Source, Digest, Err}` | One rejected document. Implements `error` and `Unwrap`. |
 | `EnrichError{Source, Digest, Err}` | One failed enrichment call. Implements `error` and `Unwrap`. The document is still ingested. |
 | `Receipt` | Run outcome: `Documents`, `Nodes`, `Edges`, `Transactions`, `Basis`, `Skipped`, `Fallbacks`, `Expanded`, `ExpansionBudget`, `ExpansionExhausted`, `Decorated`, `DecorateFailed`, `Claims`, `EnrichFailed`. `String()` renders it. |
-| `Observer` | Metrics seam: `DocumentIngested`, `DocumentSkipped`, `DocumentFailed`, `RecordsEmitted`, `FallbacksCounted`, `ExpansionDocuments`, `DocumentDecorated`, `DocumentDecorateFailed`, `ClaimsEmitted`, `EnrichFailed`. `*metrics.Metrics` satisfies it. |
+| `Observer` | Metrics seam: `DocumentIngested`, `DocumentSkipped`, `DocumentFailed`, `RecordsEmitted`, `FallbacksCounted`, `ExpansionDocuments`, `DocumentDecorated`, `DocumentDecorateFailed`, `ClaimsEmitted`, `EnrichFailed(enrich.Source)`. `*metrics.Metrics` satisfies it. |
 
 Decorators run in `Deps.Decorators` order. Each sees the stream the previous
 ones extended. An error skips that document only, records a `DecorateError`,
@@ -44,7 +44,11 @@ enricher sees the claims the previous ones added.
 | `Policy{Sources, EUOnly}` | The org's rules. `Sources` is priority order. |
 | `(Policy).Allows(Source) bool` | Listed, and under `EUOnly` sitting in the EU. |
 | `(Policy).ScanFlags() guacseam.ScanFlags` | The same policy, gating GUAC's four in-parser scanners. |
-| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. |
+| `Claim{Source, Jurisdiction, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. |
+| `Fact`, `Facts` | The closed set of fact names. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
+| `ParseFact(string) (Fact, error)` | Validates a name read off the wire or out of config. `ErrUnknownFact` (wrapped). |
+| `FactValue{Fact, Value}` | One fact paired with the value a source states for it. An enricher builds these before it knows the subject. |
+| `Prop*` constants | The property-key vocabulary of a `Claim` node: `source`, `source_jurisdiction`, `fetched_at`, `fact`, `value`, `ref`, `subject_id`. |
 | `(Claim).ID()`, `(Claim).Records()` | Identity is source, subject, fact, value, so a re-fetch replays onto the same node. `Records` renders one `Claim` node plus one `ABOUT` edge per subject. |
 | `LabelClaim`, `EdgeAbout` | The graph vocabulary enrichment adds. |
 | `Input{Digest, Records, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too. |
@@ -105,6 +109,7 @@ The only package that calls GUAC behaviour.
 | `Label*` constants (`varve.NodeLabel`) | The node vocabulary: `PkgVersion`, `PkgName`, `SrcName`, `Artifact`, `Vulnerability`, `Builder`, `License`, and one label per evidence kind. |
 | `Edge*` constants (`varve.EdgeLabel`) | The edge vocabulary: `PkgHasVersion` plus one subject/object label per evidence kind. |
 | `PkgVersionID`, `PkgNameID`, `SrcNameID`, `ArtifactID`, `VulnID`, `BuilderID`, `LicenseID`, `EvidenceID`, `EdgeIDFor` | Deterministic id derivation. Silt depends on these; a change is a breaking release. |
+| `Prop*` constants | The property-key vocabulary, alongside `Label*` and `Edge*`. `pkg/enrich` reads evidence nodes back by these names, so a key is a cross-package contract. |
 | `CanonQualifiers`, `KVPair` | Purl qualifier canonicalisation. |
 
 ## `pkg/config`
@@ -136,6 +141,7 @@ The only package that calls GUAC behaviour.
 These are implementation details. Do not depend on them.
 
 - `assemble.builder` and the seventeen `map*` methods. Use `Assemble`.
+- `assemble` formatting helpers: `fmtTime`, `fmtTimePtr`, `formatFloat`, `toNodeIDs`.
 - `guacseam.collectWith`, `parseWorkers`, `processAndParse`, `drainExpansion`, `expansionHandler`, and the collector builders.
 - `varve` retry internals: `backoff`, `parseRetryAfter`, `sleepUntil`, `ingestErrorBody`.
 - `pipeline.sourcesFromConfig`, `anyPolling`, `noopObserver`, `fold`.

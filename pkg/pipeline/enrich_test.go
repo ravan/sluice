@@ -43,18 +43,18 @@ type fakeObserver struct {
 
 func newFakeObserver() *fakeObserver { return &fakeObserver{enrichFailed: map[string]int{}} }
 
-func (o *fakeObserver) DocumentIngested()          {}
-func (o *fakeObserver) DocumentSkipped()           {}
-func (o *fakeObserver) DocumentFailed()            {}
-func (o *fakeObserver) RecordsEmitted(_, _ int64)  {}
-func (o *fakeObserver) FallbacksCounted(_ int)     {}
-func (o *fakeObserver) ExpansionDocuments(_ int)   {}
-func (o *fakeObserver) DocumentDecorated()         {}
-func (o *fakeObserver) DocumentDecorateFailed()    {}
-func (o *fakeObserver) ClaimsEmitted(n int)        { o.claims += n }
-func (o *fakeObserver) EnrichFailed(source string) { o.enrichFailed[source]++ }
+func (o *fakeObserver) DocumentIngested()                 {}
+func (o *fakeObserver) DocumentSkipped()                  {}
+func (o *fakeObserver) DocumentFailed()                   {}
+func (o *fakeObserver) RecordsEmitted(_, _ int64)         {}
+func (o *fakeObserver) FallbacksCounted(_ int)            {}
+func (o *fakeObserver) ExpansionDocuments(_ int)          {}
+func (o *fakeObserver) DocumentDecorated()                {}
+func (o *fakeObserver) DocumentDecorateFailed()           {}
+func (o *fakeObserver) ClaimsEmitted(n int)               { o.claims += n }
+func (o *fakeObserver) EnrichFailed(source enrich.Source) { o.enrichFailed[string(source)]++ }
 
-func testClaim(source enrich.Source, fact, value string) enrich.Claim {
+func testClaim(source enrich.Source, fact enrich.Fact, value string) enrich.Claim {
 	return enrich.Claim{
 		Source:       source,
 		Jurisdiction: enrich.Jurisdictions[source],

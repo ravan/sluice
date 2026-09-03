@@ -2,16 +2,11 @@ package assemble
 
 import (
 	"testing"
-	"time"
 
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
 	"github.com/ravan/sluice/pkg/varve"
 )
-
-var fixedTime = time.Date(2023, 5, 6, 7, 8, 9, 0, time.UTC)
-
-const fixedTimeStr = "2023-05-06T07:08:09Z"
 
 func TestMapCertifyBadArtifactSubject(t *testing.T) {
 	preds := []assembler.IngestPredicates{{

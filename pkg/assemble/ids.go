@@ -158,8 +158,9 @@ func LicenseID(name string, inline *string) varve.NodeID {
 	return varve.NodeID("lic:" + name)
 }
 
-// EvidenceID derives "<kind>:<sha256hex>" of the '\x1f'-joined parts. kind is
-// the evidence node's label. The separator makes the join injective.
-func EvidenceID(kind string, parts ...string) varve.NodeID {
-	return varve.NodeID(kind + ":" + hashParts(parts...))
+// EvidenceID derives "<kind>:<sha256hex>" of the '\x1f'-joined parts, where
+// kind is the evidence node's own label. The separator makes the join
+// injective.
+func EvidenceID(kind varve.NodeLabel, parts ...string) varve.NodeID {
+	return varve.NodeID(string(kind) + ":" + hashParts(parts...))
 }

@@ -150,23 +150,23 @@ func claimsFor(subject varve.NodeID, it item, now time.Time) []enrich.Claim {
 	if ok {
 		validFrom = updated
 	}
-	facts := [][2]string{
-		{"euvd_id", it.ID},
-		{"cvss", strconv.FormatFloat(it.BaseScore, 'f', -1, 64)},
-		{"cvss_version", it.BaseScoreVersion},
-		{"cvss_vector", it.BaseScoreVector},
-		{"epss", strconv.FormatFloat(it.EPSS, 'f', -1, 64)},
-		{"description", it.Description},
+	facts := []enrich.FactValue{
+		{Fact: enrich.FactEUVDID, Value: it.ID},
+		{Fact: enrich.FactCVSS, Value: strconv.FormatFloat(it.BaseScore, 'f', -1, 64)},
+		{Fact: enrich.FactCVSSVersion, Value: it.BaseScoreVersion},
+		{Fact: enrich.FactCVSSVector, Value: it.BaseScoreVector},
+		{Fact: enrich.FactEPSS, Value: strconv.FormatFloat(it.EPSS, 'f', -1, 64)},
+		{Fact: enrich.FactDescription, Value: it.Description},
 	}
 	if published, ok := parseDate(it.DatePublished); ok {
-		facts = append(facts, [2]string{"published", published.Format(time.RFC3339)})
+		facts = append(facts, enrich.FactValue{Fact: enrich.FactPublished, Value: published.Format(time.RFC3339)})
 	}
 	if ok {
-		facts = append(facts, [2]string{"updated", updated.Format(time.RFC3339)})
+		facts = append(facts, enrich.FactValue{Fact: enrich.FactUpdated, Value: updated.Format(time.RFC3339)})
 	}
 	for _, ref := range strings.Split(it.References, "\n") {
 		if ref = strings.TrimSpace(ref); ref != "" {
-			facts = append(facts, [2]string{"reference", ref})
+			facts = append(facts, enrich.FactValue{Fact: enrich.FactReference, Value: ref})
 		}
 	}
 
@@ -176,8 +176,8 @@ func claimsFor(subject varve.NodeID, it item, now time.Time) []enrich.Claim {
 			Source:       enrich.SourceEUVD,
 			Jurisdiction: enrich.EU,
 			Subject:      subject,
-			Fact:         f[0],
-			Value:        f[1],
+			Fact:         f.Fact,
+			Value:        f.Value,
 			Ref:          it.ID,
 			ValidFrom:    validFrom,
 			FetchedAt:    now,

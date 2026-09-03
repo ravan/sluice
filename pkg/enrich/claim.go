@@ -1,6 +1,9 @@
 package enrich
 
 import (
+	"errors"
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/ravan/sluice/pkg/assemble"
@@ -13,13 +16,79 @@ const (
 	EdgeAbout  varve.EdgeLabel = "ABOUT"
 )
 
+// The property-key vocabulary of a Claim node, the counterpart to assemble's
+// prop constants: a consumer querying enrichment filters on these names.
+const (
+	PropSource             = "source"
+	PropSourceJurisdiction = "source_jurisdiction"
+	PropFetchedAt          = "fetched_at"
+	PropFact               = "fact"
+	PropValue              = "value"
+	PropRef                = "ref"
+	PropSubjectID          = "subject_id"
+)
+
+// Fact names what a claim states about its subject. It is part of the claim's
+// identity, so an unlisted name would silently mint a second node rather than
+// replay onto the existing one (ADR 0031).
+type Fact string
+
+// Facts derived from a document's own scanner evidence.
+const (
+	FactAffected          Fact = "affected"
+	FactDeclaredLicense   Fact = "declared_license"
+	FactDiscoveredLicense Fact = "discovered_license"
+	FactEndOfLife         Fact = "endoflife"
+	FactScorecard         Fact = "scorecard"
+)
+
+// Facts an external vulnerability source states about a vulnerability.
+const (
+	FactEUVDID      Fact = "euvd_id"
+	FactCVSS        Fact = "cvss"
+	FactCVSSVersion Fact = "cvss_version"
+	FactCVSSVector  Fact = "cvss_vector"
+	FactEPSS        Fact = "epss"
+	FactDescription Fact = "description"
+	FactPublished   Fact = "published"
+	FactUpdated     Fact = "updated"
+	FactReference   Fact = "reference"
+)
+
+// FactValue is one fact paired with the value a source states for it. An
+// enricher builds these before it knows the subject they hang off.
+type FactValue struct {
+	Fact  Fact
+	Value string
+}
+
+// Facts is the allow-list ParseFact checks a wire name against.
+var Facts = []Fact{
+	FactAffected, FactDeclaredLicense, FactDiscoveredLicense, FactEndOfLife, FactScorecard,
+	FactEUVDID, FactCVSS, FactCVSSVersion, FactCVSSVector, FactEPSS,
+	FactDescription, FactPublished, FactUpdated, FactReference,
+}
+
+// ErrUnknownFact is returned when a name falls outside Facts.
+var ErrUnknownFact = errors.New("enrich: unknown fact")
+
+// ParseFact validates a fact name read back off the wire or out of config.
+func ParseFact(name string) (Fact, error) {
+	f := Fact(name)
+	if !slices.Contains(Facts, f) {
+		return "", fmt.Errorf("%w: %q", ErrUnknownFact, name)
+	}
+	return f, nil
+}
+
 // Claim is one fact from one source about one subject (ADR 0031).
 type Claim struct {
 	Source       Source
 	Jurisdiction Jurisdiction
 	Subject      varve.NodeID   // part of the identity
 	Also         []varve.NodeID // further ABOUT targets, not part of the identity
-	Fact, Value  string
+	Fact         Fact
+	Value        string
 	Ref          string    // an EUVD id, a scanner documentRef; "" writes no prop
 	ValidFrom    time.Time // the source's date for the fact, else FetchedAt
 	FetchedAt    time.Time
@@ -28,20 +97,20 @@ type Claim struct {
 // ID derives the claim's identity from source, subject, fact and value, so a
 // re-fetch of the same fact replays onto the same node.
 func (c Claim) ID() varve.NodeID {
-	return assemble.EvidenceID(string(LabelClaim), string(c.Source), string(c.Subject), c.Fact, c.Value)
+	return assemble.EvidenceID(LabelClaim, string(c.Source), string(c.Subject), string(c.Fact), c.Value)
 }
 
 // Records renders the claim as one node plus one ABOUT edge per subject.
 func (c Claim) Records() varve.Stream {
 	id := c.ID()
 	props := keepSet([]varve.Prop{
-		{Key: "source", Value: varve.Str(string(c.Source))},
-		{Key: "source_jurisdiction", Value: varve.Str(string(c.Jurisdiction))},
-		{Key: "fetched_at", Value: varve.Str(fmtTime(c.FetchedAt))},
-		{Key: "fact", Value: varve.Str(c.Fact)},
-		{Key: "value", Value: varve.Str(c.Value)},
-		{Key: "ref", Value: varve.Str(c.Ref)},
-		{Key: "subject_id", Value: varve.Str(string(c.Subject))},
+		{Key: PropSource, Value: varve.Str(string(c.Source))},
+		{Key: PropSourceJurisdiction, Value: varve.Str(string(c.Jurisdiction))},
+		{Key: PropFetchedAt, Value: varve.Str(fmtTime(c.FetchedAt))},
+		{Key: PropFact, Value: varve.Str(string(c.Fact))},
+		{Key: PropValue, Value: varve.Str(c.Value)},
+		{Key: PropRef, Value: varve.Str(c.Ref)},
+		{Key: PropSubjectID, Value: varve.Str(string(c.Subject))},
 	})
 	s := varve.Stream{Nodes: []varve.NodeRecord{{
 		ID:        id,

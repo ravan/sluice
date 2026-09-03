@@ -99,18 +99,18 @@ func (b *builder) addPackage(p *generated.PkgInputSpec) (nameID, versionID varve
 
 	purl := helpers.PkgToPurl(p.Type, namespace, p.Name, version, subpath, qualifierList(p.Qualifiers))
 	b.addNode(versionID, LabelPkgVersion, []varve.Prop{
-		{Key: "type", Value: varve.Str(p.Type)},
-		{Key: "namespace", Value: varve.Str(namespace)},
-		{Key: "name", Value: varve.Str(p.Name)},
-		{Key: "version", Value: varve.Str(version)},
-		{Key: "qualifiers", Value: varve.Str(canonQuals)},
-		{Key: "subpath", Value: varve.Str(subpath)},
-		{Key: "purl", Value: varve.Str(purl)},
+		{Key: PropType, Value: varve.Str(p.Type)},
+		{Key: PropNamespace, Value: varve.Str(namespace)},
+		{Key: PropName, Value: varve.Str(p.Name)},
+		{Key: PropVersion, Value: varve.Str(version)},
+		{Key: PropQualifiers, Value: varve.Str(canonQuals)},
+		{Key: PropSubpath, Value: varve.Str(subpath)},
+		{Key: PropPurl, Value: varve.Str(purl)},
 	})
 	b.addNode(nameID, LabelPkgName, []varve.Prop{
-		{Key: "type", Value: varve.Str(p.Type)},
-		{Key: "namespace", Value: varve.Str(namespace)},
-		{Key: "name", Value: varve.Str(p.Name)},
+		{Key: PropType, Value: varve.Str(p.Type)},
+		{Key: PropNamespace, Value: varve.Str(namespace)},
+		{Key: PropName, Value: varve.Str(p.Name)},
 	})
 	b.addEdge(nameID, EdgePkgHasVersion, versionID)
 	return nameID, versionID
@@ -125,11 +125,11 @@ func (b *builder) addSource(s *generated.SourceInputSpec) varve.NodeID {
 	commit := deref(s.Commit)
 	id := SrcNameID(s.Type, s.Namespace, s.Name, tag, commit)
 	b.addNode(id, LabelSrcName, []varve.Prop{
-		{Key: "type", Value: varve.Str(s.Type)},
-		{Key: "namespace", Value: varve.Str(s.Namespace)},
-		{Key: "name", Value: varve.Str(s.Name)},
-		{Key: "tag", Value: varve.Str(tag)},
-		{Key: "commit", Value: varve.Str(commit)},
+		{Key: PropType, Value: varve.Str(s.Type)},
+		{Key: PropNamespace, Value: varve.Str(s.Namespace)},
+		{Key: PropName, Value: varve.Str(s.Name)},
+		{Key: PropTag, Value: varve.Str(tag)},
+		{Key: PropCommit, Value: varve.Str(commit)},
 	})
 	return id
 }
@@ -141,8 +141,8 @@ func (b *builder) addArtifact(a *generated.ArtifactInputSpec) varve.NodeID {
 	}
 	id := ArtifactID(a.Algorithm, a.Digest)
 	b.addNode(id, LabelArtifact, []varve.Prop{
-		{Key: "algorithm", Value: varve.Str(strings.ToLower(a.Algorithm))},
-		{Key: "digest", Value: varve.Str(strings.ToLower(a.Digest))},
+		{Key: PropAlgorithm, Value: varve.Str(strings.ToLower(a.Algorithm))},
+		{Key: PropDigest, Value: varve.Str(strings.ToLower(a.Digest))},
 	})
 	return id
 }
@@ -159,8 +159,8 @@ func (b *builder) addVulnerability(v *generated.VulnerabilityInputSpec) varve.No
 		vulnID = ""
 	}
 	b.addNode(id, LabelVulnerability, []varve.Prop{
-		{Key: "type", Value: varve.Str(strings.ToLower(v.Type))},
-		{Key: "vulnID", Value: varve.Str(vulnID)},
+		{Key: PropType, Value: varve.Str(strings.ToLower(v.Type))},
+		{Key: PropVulnID, Value: varve.Str(vulnID)},
 	})
 	return id
 }
@@ -172,7 +172,7 @@ func (b *builder) addBuilder(bd *generated.BuilderInputSpec) varve.NodeID {
 	}
 	id := BuilderID(bd.Uri)
 	b.addNode(id, LabelBuilder, []varve.Prop{
-		{Key: "uri", Value: varve.Str(bd.Uri)},
+		{Key: PropURI, Value: varve.Str(bd.Uri)},
 	})
 	return id
 }
@@ -181,11 +181,31 @@ func (b *builder) addBuilder(bd *generated.BuilderInputSpec) varve.NodeID {
 func (b *builder) addLicense(l generated.LicenseInputSpec) varve.NodeID {
 	id := LicenseID(l.Name, l.Inline)
 	b.addNode(id, LabelLicense, []varve.Prop{
-		{Key: "name", Value: varve.Str(l.Name)},
-		{Key: "inline", Value: varve.Str(deref(l.Inline))},
-		{Key: "listVersion", Value: varve.Str(deref(l.ListVersion))},
+		{Key: PropName, Value: varve.Str(l.Name)},
+		{Key: PropInline, Value: varve.Str(deref(l.Inline))},
+		{Key: PropListVersion, Value: varve.Str(deref(l.ListVersion))},
 	})
 	return id
+}
+
+// pkgOrSrcSubject resolves the PkgVersion id (or SrcName id) of whichever
+// subject is non-nil.
+func (b *builder) pkgOrSrcSubject(pkg *generated.PkgInputSpec, src *generated.SourceInputSpec) varve.NodeID {
+	if pkg != nil {
+		_, versionID := b.addPackage(pkg)
+		return versionID
+	}
+	return b.addSource(src)
+}
+
+// pkgOrArtSubject resolves the PkgVersion id (or Artifact id) of whichever
+// subject is non-nil.
+func (b *builder) pkgOrArtSubject(pkg *generated.PkgInputSpec, art *generated.ArtifactInputSpec) varve.NodeID {
+	if pkg != nil {
+		_, versionID := b.addPackage(pkg)
+		return versionID
+	}
+	return b.addArtifact(art)
 }
 
 // pkgSubjectID resolves a package subject at the level MatchFlags selects: the

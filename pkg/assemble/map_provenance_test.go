@@ -3,11 +3,51 @@ package assemble
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guacsec/guac/pkg/assembler"
 	"github.com/guacsec/guac/pkg/assembler/clients/generated"
 	"github.com/ravan/sluice/pkg/varve"
 )
+
+func TestMapHasSourceAt(t *testing.T) {
+	p1 := &generated.PkgInputSpec{Type: "golang", Namespace: ptr("github.com/x"), Name: "y", Version: ptr("v1.0.0")}
+	src := &generated.SourceInputSpec{Type: "git", Namespace: "github.com/x", Name: "y", Tag: ptr("v1"), Commit: ptr("abc")}
+	preds := []assembler.IngestPredicates{{
+		HasSourceAt: []assembler.HasSourceAtIngest{{
+			Pkg:          p1,
+			PkgMatchFlag: generated.MatchFlags{Pkg: generated.PkgMatchTypeAllVersions},
+			Src:          src,
+			HasSourceAt:  &generated.HasSourceAtInputSpec{KnownSince: time.Date(2022, 1, 2, 3, 4, 5, 0, time.UTC), Justification: "found"},
+		}},
+	}}
+	got := streamAt(t, preds)
+
+	nameID := varve.NodeID("pkg:n:golang/github.com/x/y")
+	srcID := varve.NodeID("src:n:git/github.com/x/y@v1@abc")
+	evID := EvidenceID("HasSourceAt", string(nameID), string(srcID),
+		"2022-01-02T03:04:05Z", "found", "", "", "")
+
+	n, ok := findNode(got, evID)
+	if !ok {
+		t.Fatalf("no HasSourceAt node with id %q; got:\n%s", evID, ndjson(t, got))
+	}
+	wantProps := []varve.Prop{
+		{Key: "subjectId", Value: varve.Str(string(nameID))},
+		{Key: "objectId", Value: varve.Str(string(srcID))},
+		{Key: "knownSince", Value: varve.Str("2022-01-02T03:04:05Z")},
+		{Key: "justification", Value: varve.Str("found")},
+	}
+	assertProps(t, n, wantProps)
+
+	// ALL_VERSIONS → subject edge starts at the PkgName id.
+	if _, ok := findEdge(got, EdgeIDFor(nameID, EdgeHasSourceAtSubject, evID)); !ok {
+		t.Errorf("missing HasSourceAtSubject edge from PkgName %s", nameID)
+	}
+	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeHasSourceAtSource, srcID)); !ok {
+		t.Errorf("missing HasSourceAtSource edge to %s", srcID)
+	}
+}
 
 func TestMapHasSlsa(t *testing.T) {
 	preds := []assembler.IngestPredicates{{
@@ -95,52 +135,5 @@ func TestMapCertifyScorecard(t *testing.T) {
 	line := nodeLine(t, n)
 	if !strings.Contains(line, `"aggregateScore":8.5`) {
 		t.Errorf("aggregateScore not a bare float in %s", line)
-	}
-}
-
-func TestMapCertifyLegal(t *testing.T) {
-	p1 := &generated.PkgInputSpec{Type: "golang", Namespace: ptr("github.com/x"), Name: "y", Version: ptr("v1.0.0")}
-	preds := []assembler.IngestPredicates{{
-		CertifyLegal: []assembler.CertifyLegalIngest{{
-			Pkg:        p1,
-			Declared:   []generated.LicenseInputSpec{{Name: "MIT"}},
-			Discovered: []generated.LicenseInputSpec{{Name: "Apache-2.0"}},
-			CertifyLegal: &generated.CertifyLegalInputSpec{
-				DeclaredLicense:   "MIT",
-				DiscoveredLicense: "Apache-2.0",
-				Justification:     "scan",
-				TimeScanned:       fixedTime,
-			},
-		}},
-	}}
-	got := streamAt(t, preds)
-
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
-	declared := joinIDs([]varve.NodeID{"lic:MIT"})
-	discovered := joinIDs([]varve.NodeID{"lic:Apache-2.0"})
-	evID := EvidenceID("CertifyLegal", string(subjID), "MIT", "Apache-2.0", "", "scan", fixedTimeStr,
-		"", "", "", declared, discovered)
-
-	n, ok := findNode(got, evID)
-	if !ok {
-		t.Fatalf("no CertifyLegal node with id %q; got:\n%s", evID, ndjson(t, got))
-	}
-	assertProps(t, n, []varve.Prop{
-		{Key: "subjectId", Value: varve.Str(string(subjID))},
-		{Key: "declaredLicense", Value: varve.Str("MIT")},
-		{Key: "discoveredLicense", Value: varve.Str("Apache-2.0")},
-		{Key: "justification", Value: varve.Str("scan")},
-		{Key: "timeScanned", Value: varve.Str(fixedTimeStr)},
-		{Key: "declaredLicenses", Value: varve.Str(declared)},
-		{Key: "discoveredLicenses", Value: varve.Str(discovered)},
-	})
-	if _, ok := findEdge(got, EdgeIDFor(subjID, EdgeCertifyLegalSubject, evID)); !ok {
-		t.Errorf("missing CertifyLegalSubject edge")
-	}
-	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeCertifyLegalDeclaredLicense, "lic:MIT")); !ok {
-		t.Errorf("missing CertifyLegalDeclaredLicense edge")
-	}
-	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeCertifyLegalDiscoveredLicense, "lic:Apache-2.0")); !ok {
-		t.Errorf("missing CertifyLegalDiscoveredLicense edge")
 	}
 }

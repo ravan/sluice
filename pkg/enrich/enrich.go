@@ -125,11 +125,11 @@ func VulnNames(s varve.Stream) []string {
 		if !slices.Contains(n.Labels, assemble.LabelVulnerability) {
 			continue
 		}
-		typ, _ := propStr(n.Props, "type")
+		typ, _ := propStr(n.Props, assemble.PropType)
 		if typ != "cve" && typ != "euvd" {
 			continue
 		}
-		name, ok := propStr(n.Props, "vulnID")
+		name, ok := propStr(n.Props, assemble.PropVulnID)
 		if !ok || name == "" || seen[name] {
 			continue
 		}

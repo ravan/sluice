@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.3.0 — 2026-09-03
+
+### Changed
+
+- `enrich.Claim.Fact` is now `enrich.Fact`, not `string`. The fact names are a
+  closed set (`FactAffected`, `FactCVSS`, `FactReference`, …, listed in
+  `Facts`), and `Fact` is part of a claim's identity: a misspelling used to
+  mint a second node instead of replaying onto the first. `ParseFact` validates
+  a name read off the wire; `ErrUnknownFact` is wrapped.
+- `assemble.EvidenceID` takes a `varve.NodeLabel`, not a `string`. Its `kind`
+  argument was always the evidence node's own label, and all eighteen callers
+  were casting one to feed it.
+- `pipeline.Observer.EnrichFailed` takes an `enrich.Source`, not a `string`.
+  `pkg/metrics` now imports `pkg/enrich` and converts at the Prometheus label.
+
+### Added
+
+- `assemble.Prop*`: the property-key vocabulary, alongside the existing
+  `Label*` and `Edge*` constants. `pkg/enrich` reads evidence nodes back by
+  these names (`subjectId`, `collector`, `documentRef`, the per-scanner value
+  keys), so a key is a contract between the two packages, not private
+  spelling. Both the write and the read sites now name the constant.
+- `enrich.Prop*`: the same for a `Claim` node's own properties.
+- `enrich.FactValue`: a fact paired with the value a source states for it,
+  replacing an unexported pair in `Derive` and a `[][2]string` in the EUVD
+  enricher.
+- Doc comments on every exported identifier in `pkg/metrics`.
+
+### Fixed
+
+- `pkg/assemble` file names. `map_a.go` … `map_e.go` named nothing a reader
+  could predict; the mappings are now grouped by subject in
+  `map_dependency.go`, `map_vulnerability.go`, `map_provenance.go`,
+  `map_legal.go`, `map_annotation.go` and `map_equality.go`, with the shared
+  scalar renderings in `format.go`. No behaviour change; the tests move with
+  them.
+
 ## v0.2.0 — 2026-09-03
 
 ### Added

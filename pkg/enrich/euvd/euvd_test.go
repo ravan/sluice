@@ -115,7 +115,7 @@ func TestClaimsFor(t *testing.T) {
 	validFrom := time.Date(2026, 8, 4, 7, 5, 54, 0, time.UTC)
 	for i, w := range want {
 		c := got[i]
-		if c.Fact != w[0] || c.Value != w[1] {
+		if string(c.Fact) != w[0] || c.Value != w[1] {
 			t.Errorf("claim %d = (%q, %q), want (%q, %q)", i, c.Fact, c.Value, w[0], w[1])
 		}
 		if c.Source != enrich.SourceEUVD {

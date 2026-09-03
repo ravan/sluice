@@ -89,21 +89,21 @@ type Observer interface {
 	DocumentDecorated()
 	DocumentDecorateFailed()
 	ClaimsEmitted(n int)
-	EnrichFailed(source string)
+	EnrichFailed(source enrich.Source)
 }
 
 type noopObserver struct{}
 
-func (noopObserver) DocumentIngested()         {}
-func (noopObserver) DocumentSkipped()          {}
-func (noopObserver) DocumentFailed()           {}
-func (noopObserver) RecordsEmitted(_, _ int64) {}
-func (noopObserver) FallbacksCounted(_ int)    {}
-func (noopObserver) ExpansionDocuments(_ int)  {}
-func (noopObserver) DocumentDecorated()        {}
-func (noopObserver) DocumentDecorateFailed()   {}
-func (noopObserver) ClaimsEmitted(_ int)       {}
-func (noopObserver) EnrichFailed(_ string)     {}
+func (noopObserver) DocumentIngested()            {}
+func (noopObserver) DocumentSkipped()             {}
+func (noopObserver) DocumentFailed()              {}
+func (noopObserver) RecordsEmitted(_, _ int64)    {}
+func (noopObserver) FallbacksCounted(_ int)       {}
+func (noopObserver) ExpansionDocuments(_ int)     {}
+func (noopObserver) DocumentDecorated()           {}
+func (noopObserver) DocumentDecorateFailed()      {}
+func (noopObserver) ClaimsEmitted(_ int)          {}
+func (noopObserver) EnrichFailed(_ enrich.Source) {}
 
 // Deps are the injected I/O/clock/observability dependencies (the core stays pure).
 type Deps struct {
@@ -221,7 +221,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Now: t})
 			if err != nil {
 				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: err})
-				observer.EnrichFailed(string(src))
+				observer.EnrichFailed(src)
 				logger.Warn("enrichment failed", "source", src, "digest", digest, "error", err)
 				continue
 			}

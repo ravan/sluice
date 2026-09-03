@@ -9,6 +9,55 @@ import (
 	"github.com/ravan/sluice/pkg/varve"
 )
 
+func TestMapIsDependency(t *testing.T) {
+	p1 := &generated.PkgInputSpec{Type: "golang", Namespace: ptr("github.com/x"), Name: "y", Version: ptr("v1.0.0")}
+	p2 := &generated.PkgInputSpec{Type: "npm", Namespace: nil, Name: "left-pad", Version: ptr("1.3.0")}
+	preds := []assembler.IngestPredicates{{
+		IsDependency: []assembler.IsDependencyIngest{{
+			Pkg: p1, DepPkg: p2,
+			IsDependency: &generated.IsDependencyInputSpec{DependencyType: "DIRECT", Justification: "dep"},
+		}},
+	}}
+	got := streamAt(t, preds)
+
+	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	objID := varve.NodeID("pkg:v:npm//left-pad/1.3.0++")
+	evID := EvidenceID("IsDependency", string(subjID), string(objID), "DIRECT", "dep", "", "", "")
+
+	if c := countLabel(got, LabelIsDependency); c != 1 {
+		t.Fatalf("IsDependency node count = %d, want 1", c)
+	}
+	n, ok := findNode(got, evID)
+	if !ok {
+		t.Fatalf("no IsDependency node with id %q; got:\n%s", evID, ndjson(t, got))
+	}
+	wantProps := []varve.Prop{
+		{Key: "subjectId", Value: varve.Str(string(subjID))},
+		{Key: "objectId", Value: varve.Str(string(objID))},
+		{Key: "dependencyType", Value: varve.Str("DIRECT")},
+		{Key: "justification", Value: varve.Str("dep")},
+	}
+	assertProps(t, n, wantProps)
+
+	wantLine := `{"type":"node","labels":["IsDependency"],"props":{"_id":"` + string(evID) +
+		`","subjectId":"` + string(subjID) + `","objectId":"` + string(objID) +
+		`","dependencyType":"DIRECT","justification":"dep"},"valid_from":"2026-08-07T00:00:00Z"}` + "\n"
+	if got := nodeLine(t, n); got != wantLine {
+		t.Errorf("IsDependency node wire bytes\n got: %s\nwant: %s", got, wantLine)
+	}
+
+	if _, ok := findEdge(got, EdgeIDFor(subjID, EdgeIsDependencySubject, evID)); !ok {
+		t.Errorf("missing IsDependencySubject edge %s -> %s", subjID, evID)
+	}
+	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeIsDependencyObject, objID)); !ok {
+		t.Errorf("missing IsDependencyObject edge %s -> %s", evID, objID)
+	}
+	// p1/p2 identity present.
+	if countLabel(got, LabelPkgVersion) != 2 || countLabel(got, LabelPkgName) != 2 {
+		t.Errorf("package identity: %d PkgVersion / %d PkgName, want 2 / 2", countLabel(got, LabelPkgVersion), countLabel(got, LabelPkgName))
+	}
+}
+
 func TestMapIsOccurrencePackageSubject(t *testing.T) {
 	p1 := &generated.PkgInputSpec{Type: "golang", Namespace: ptr("github.com/x"), Name: "y", Version: ptr("v1.0.0")}
 	preds := []assembler.IngestPredicates{{
@@ -107,47 +156,5 @@ func TestMapHasSBOM(t *testing.T) {
 	// No object edge for HasSBOM.
 	if len(got.Edges) != 2 { // PkgHasVersion + HasSbomSubject
 		t.Errorf("edge count = %d, want 2 (PkgHasVersion + HasSbomSubject)", len(got.Edges))
-	}
-}
-
-func TestMapVex(t *testing.T) {
-	p1 := &generated.PkgInputSpec{Type: "golang", Namespace: ptr("github.com/x"), Name: "y", Version: ptr("v1.0.0")}
-	ks := time.Date(2021, 12, 15, 0, 0, 0, 0, time.UTC)
-	preds := []assembler.IngestPredicates{{
-		Vex: []assembler.VexIngest{{
-			Pkg:           p1,
-			Vulnerability: &generated.VulnerabilityInputSpec{Type: "osv", VulnerabilityID: "CVE-2021-44228"},
-			VexData: &generated.VexStatementInputSpec{
-				Status:           generated.VexStatusFixed,
-				VexJustification: generated.VexJustificationComponentNotPresent,
-				Statement:        "patched",
-				KnownSince:       ks,
-			},
-		}},
-	}}
-	got := streamAt(t, preds)
-
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
-	vulnID := varve.NodeID("vuln:osv/cve-2021-44228")
-	evID := EvidenceID("Vex", string(subjID), string(vulnID), "FIXED", "COMPONENT_NOT_PRESENT",
-		"patched", "", "2021-12-15T00:00:00Z", "", "", "")
-
-	n, ok := findNode(got, evID)
-	if !ok {
-		t.Fatalf("no Vex node with id %q; got:\n%s", evID, ndjson(t, got))
-	}
-	assertProps(t, n, []varve.Prop{
-		{Key: "subjectId", Value: varve.Str(string(subjID))},
-		{Key: "objectId", Value: varve.Str(string(vulnID))},
-		{Key: "status", Value: varve.Str("FIXED")},
-		{Key: "vexJustification", Value: varve.Str("COMPONENT_NOT_PRESENT")},
-		{Key: "statement", Value: varve.Str("patched")},
-		{Key: "knownSince", Value: varve.Str("2021-12-15T00:00:00Z")},
-	})
-	if _, ok := findEdge(got, EdgeIDFor(subjID, EdgeVexSubject, evID)); !ok {
-		t.Errorf("missing VexSubject edge")
-	}
-	if _, ok := findEdge(got, EdgeIDFor(evID, EdgeVexVulnerability, vulnID)); !ok {
-		t.Errorf("missing VexVulnerability edge")
 	}
 }
