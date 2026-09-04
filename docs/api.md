@@ -41,9 +41,10 @@ fold sites take, so an enricher cannot state where its own host sits.
 
 | Identifier | Role |
 |---|---|
-| `Source`, `Jurisdiction` | String types. The six `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
+| `Source`, `Jurisdiction` | String types. The seven `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
 | `Sources`, `Jurisdictions` | The closed source set, and each fixed-host source's jurisdiction. `vulnerablecode` has no entry: its host is a deployment choice, so `Policy.Hosted` supplies it. |
 | `AllJurisdictions` | The closed jurisdiction set: `EU`, `US`, `Other`. |
+| `SourceRunner`, `(Source).Runner()` | What produces a source's claims: `RunByEnricher` (the pipeline calls an `Enricher`, per document), `RunByScanner` (GUAC runs it in the parser, gated by `ScanFlags`), `RunByReplay` (a host job replays it). A source no table names is `RunByEnricher`, so a missing enricher is still reported. |
 | `ParsePolicy([]string, bool, map[Source]Jurisdiction) (Policy, error)` | Validates source names and hosted jurisdictions. `ErrUnknownSource` (wrapped), a duplicate error, or `ErrUnknownJurisdiction` (wrapped). |
 | `ParseJurisdiction(string) (Jurisdiction, error)` | Validates a jurisdiction name read out of config. `ErrUnknownJurisdiction` (wrapped). |
 | `Policy{Sources, EUOnly, Hosted}` | The org's rules. `Sources` is priority order. `Hosted` is the per-install jurisdiction of a source whose host is a deployment choice; it wins over `Jurisdictions`. |
@@ -65,6 +66,10 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `VulnNodes(varve.Stream) map[string]varve.NodeID` | Every `Vulnerability` node's lower-cased `vulnID` to its node id. |
 | `PkgPurls(varve.Stream) []string` | The `purl` of every `PkgVersion` node, sorted and deduped. |
 | `Derive(varve.Stream) []Claim` | Scanner evidence to claims, by `(label, collector)`, ordered by id. |
+| `Severity{System, Score, Elements}` | One score a source states, normalised. VulnerableCode's V3 API calls the score `value`; a FederatedCode advisory calls it `score`. |
+| `CVSS([]Severity) (Severity, bool)` | The first severity whose system starts `cvssv` **and** whose score parses as a number. One advisory mixes `cvssv3.1`, `cvssv4`, `generic_textual`, `epss` and `rhas` in one list. |
+| `EPSS([]Severity) (Severity, bool)` | The first severity whose system is exactly `epss`. |
+| `(Severity).Version() string` | What follows a CVSS system's `cvssv` prefix: `3.1`, or `3`. Empty for a non-CVSS system. |
 
 ## `pkg/enrich/euvd`
 
@@ -84,6 +89,26 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `New(baseURL string, client *http.Client) (*Enricher, error)` | A bad URL is an error; a nil client is a 20 s-timeout client. |
 | `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `GET <base>/api/v3/affected-by-advisories?purl=<purl>` per `PkgVersion` node. One advisory becomes one `affected` claim about the package plus a fact set on every alias vulnerability the stream already carries. |
 | `ErrStatus` | A non-200 answer from the API. |
+
+## `pkg/enrich/federatedcode`
+
+| Identifier | Role |
+|---|---|
+| `PackagesPrefix`, `VulnerabilitiesDir`, `VulnerabilitiesFile` | The fixed pieces of the `aboutcode.hashid` 0.2.0 layout: `aboutcode-packages`, `aboutcode-vulnerabilities`, `vulnerabilities.yml`. |
+| `BitCounts` | `aboutcode.hashid`'s `BIT_COUNT_BY_ECOSYSTEM`: how many bits of a purl's hash name the bucket its type lives in. An absent type uses 0 bits. |
+| `CorePurl(string) (string, error)` | Normalises a purl and drops version, qualifiers and subpath: the string the hash is taken over. `ErrPurl` (wrapped). |
+| `PurlHash(corePurl string, bits int) string` | `get_purl_hash`: sha256 -> big-endian `big.Int` -> mod 2**bits -> `%0*x`. |
+| `PackagePath{Bucket, Core}`, `(PackagePath).Dir()` | Where one package's data files sit. `Dir` joins the two. |
+| `PathFor(purl string) (PackagePath, error)` | `get_package_base_dir`. |
+| `VulnerabilityPath(vcid string) string` | Where one VCID's file sits: characters 5 and 6 of the VCID name its directory. |
+| `PackageEntry{Purl, AffectedBy, Fixing}` | One entry of a `vulnerabilities.yml` file. |
+| `Advisory{VulnerabilityID, Aliases, Summary, Severities, References}`, `Severity`, `Reference` | One `aboutcode-vulnerabilities` file. Its `Severity` is the YAML shape; `enrich.Severity` is the normalised one. |
+| `ParsePackageEntries([]byte)`, `ParseAdvisory([]byte)` | A malformed document is a wrapped error, never a partial result. |
+| `(Advisory).Facts() []enrich.FactValue` | What the advisory states about the vulnerability itself, in claim order. An empty value is not a fact. |
+| `Request{Subjects, Vulns}` | What a caller wants replayed: exact versioned purl to its `PkgVersion` node, and lower-cased vulnerability id to its `Vulnerability` node. A replay hangs claims on nodes the caller already holds and never invents one. |
+| `Result{Packages, Commits, Claims, Missing}` | One replay's outcome: the counts a job receipt reports. |
+| `Open(ctx, dir, url string) (*Repo, error)` | Opens the clone at `dir`, cloning it from `url` when `dir` holds none, and fetches an existing one. Neither possible is `ErrNoRepo`. |
+| `(*Repo).Replay(ctx, Request) (Result, error)` | Walks each subject's data history and returns one claim per fact per commit, each `ValidFrom` and `FetchedAt` the commit's committer time. Claims come back oldest first. |
 
 ## `pkg/varve`
 

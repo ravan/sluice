@@ -225,6 +225,12 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			if !policy.Allows(src) {
 				continue
 			}
+			// A scanner source already ran inside the parser and a replay
+			// source is a host job's work; neither missing an Enricher here
+			// is a fault.
+			if src.Runner() != enrich.RunByEnricher {
+				continue
+			}
 			e := enricherFor(deps.Enrichers, src)
 			if e == nil {
 				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: ErrNoEnricher})

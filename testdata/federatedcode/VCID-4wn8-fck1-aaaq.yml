@@ -1,0 +1,45 @@
+vulnerability_id: VCID-4wn8-fck1-aaaq
+aliases:
+  - CVE-2018-3721
+  - GHSA-fvqr-27wr-82fm
+summary: lodash node module suffers from a Modification of Assumed-Immutable Data (MAID) vulnerability
+  via defaultsDeep, merge, and mergeWith functions, which allows a malicious user to modify
+  the prototype of `Object` via `__proto__`, causing the addition or modification of an existing
+  property that will exist on all objects.
+severities:
+  - score: Medium
+    scoring_system: generic_textual
+    scoring_elements:
+    published_at: None
+    url: http://people.canonical.com/~ubuntu-security/cve/2018/CVE-2018-3721.html
+  - score: Important
+    scoring_system: rhas
+    scoring_elements:
+    published_at: None
+    url: https://access.redhat.com/errata/RHSA-2021:3917
+  - score: '2.9'
+    scoring_system: cvssv3
+    scoring_elements: CVSS:3.0/AV:L/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L
+    published_at: None
+    url: https://access.redhat.com/hydra/rest/securitydata/cve/CVE-2018-3721.json
+  - score: '0.00103'
+    scoring_system: epss
+    scoring_elements: '0.2911'
+    published_at: '2025-11-03 12:55:00+00:00'
+    url: https://api.first.org/data/v1/epss?cve=CVE-2018-3721
+weaknesses:
+  - CWE-1321
+  - CWE-1035
+  - CWE-937
+  - CWE-20
+  - CWE-471
+references:
+  - url: http://people.canonical.com/~ubuntu-security/cve/2018/CVE-2018-3721.html
+    reference_type:
+    reference_id:
+  - url: https://access.redhat.com/hydra/rest/securitydata/cve/CVE-2018-3721.json
+    reference_type:
+    reference_id:
+  - url: https://api.first.org/data/v1/epss?cve=CVE-2018-3721
+    reference_type:
+    reference_id:

@@ -33,6 +33,10 @@ const (
 	SourceEOL            Source = "eol"
 	SourceDepsDev        Source = "deps_dev"
 
+	// SourceFederatedCode is AboutCode's FederatedCode data. Nothing calls it over
+	// the network: a host job replays a git clone of it.
+	SourceFederatedCode Source = "federatedcode"
+
 	EU    Jurisdiction = "eu"
 	US    Jurisdiction = "us"
 	Other Jurisdiction = "other"
@@ -41,7 +45,39 @@ const (
 // Sources is the closed set ParsePolicy accepts.
 var Sources = []Source{
 	SourceEUVD, SourceVulnerableCode, SourceOSV,
-	SourceClearlyDefined, SourceEOL, SourceDepsDev,
+	SourceClearlyDefined, SourceEOL, SourceDepsDev, SourceFederatedCode,
+}
+
+// SourceRunner says what produces a source's claims, so the pipeline looks for
+// an Enricher only for the sources it calls itself.
+type SourceRunner int
+
+// RunByEnricher and the runners below it are every way a source can run.
+const (
+	RunByEnricher SourceRunner = iota // the pipeline calls an Enricher, per document
+	RunByScanner                      // GUAC runs it in the parser, gated by ScanFlags
+	RunByReplay                       // a host job replays it; the pipeline never calls it
+)
+
+// runners names the source whose Runner is not RunByEnricher, plus euvd and
+// vulnerablecode explicitly, so a new source cannot land here by accident.
+var runners = map[Source]SourceRunner{
+	SourceEUVD:           RunByEnricher,
+	SourceVulnerableCode: RunByEnricher,
+	SourceOSV:            RunByScanner,
+	SourceClearlyDefined: RunByScanner,
+	SourceEOL:            RunByScanner,
+	SourceDepsDev:        RunByScanner,
+	SourceFederatedCode:  RunByReplay,
+}
+
+// Runner says what runs s. A source no table names is RunByEnricher, so a
+// missing enricher is still reported rather than quietly skipped.
+func (s Source) Runner() SourceRunner {
+	if r, ok := runners[s]; ok {
+		return r
+	}
+	return RunByEnricher
 }
 
 // Jurisdictions maps a source to the jurisdiction of the host it calls.

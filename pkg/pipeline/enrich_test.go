@@ -113,29 +113,29 @@ func TestEnrichRunsInPolicyOrderAndFeedsForward(t *testing.T) {
 	var order []enrich.Source
 	first := testClaim(enrich.SourceEUVD, "cvss", "8.1")
 	euvdFake := &fakeEnricher{source: enrich.SourceEUVD, claims: []enrich.Claim{first}, log: &order}
-	osvFake := &fakeEnricher{source: enrich.SourceOSV, claims: []enrich.Claim{testClaim(enrich.SourceOSV, "affected", "pkg:v:a")}, log: &order}
+	vcFake := &fakeEnricher{source: enrich.SourceVulnerableCode, claims: []enrich.Claim{testClaim(enrich.SourceVulnerableCode, "affected", "pkg:v:a")}, log: &order}
 	fake := &fakeSink{responses: []response{{}}}
 
 	if _, err := runOneShotPolicy(t, fixtureDir, fake,
-		enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD, enrich.SourceOSV}},
-		pipeline.Deps{Enrichers: []enrich.Enricher{osvFake, euvdFake}}); err != nil {
+		enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD, enrich.SourceVulnerableCode}},
+		pipeline.Deps{Enrichers: []enrich.Enricher{vcFake, euvdFake}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	want := []enrich.Source{enrich.SourceEUVD, enrich.SourceOSV}
+	want := []enrich.Source{enrich.SourceEUVD, enrich.SourceVulnerableCode}
 	if len(order) != len(want) || order[0] != want[0] || order[1] != want[1] {
 		t.Fatalf("call order = %v, want %v", order, want)
 	}
-	if len(osvFake.inputs) != 1 {
-		t.Fatalf("the osv enricher was called %d times, want 1", len(osvFake.inputs))
+	if len(vcFake.inputs) != 1 {
+		t.Fatalf("the vulnerablecode enricher was called %d times, want 1", len(vcFake.inputs))
 	}
 	var seen bool
-	for _, n := range claimNodes(osvFake.inputs[0].Records) {
+	for _, n := range claimNodes(vcFake.inputs[0].Records) {
 		if n.ID == first.ID() {
 			seen = true
 		}
 	}
 	if !seen {
-		t.Errorf("the osv enricher's input does not hold the euvd claim node %q", first.ID())
+		t.Errorf("the vulnerablecode enricher's input does not hold the euvd claim node %q", first.ID())
 	}
 }
 
@@ -188,30 +188,46 @@ func TestEnrichFailureIsCountedNotFatal(t *testing.T) {
 }
 
 func TestEnrichReportsASourceWithNoEnricher(t *testing.T) {
-	obs := newFakeObserver()
-	fake := &fakeSink{responses: []response{{}}}
+	cases := []struct {
+		name         string
+		source       enrich.Source
+		wantFailures int
+	}{
+		{"euvd has no enricher", enrich.SourceEUVD, 1},
+		{"osv runs in the scanner, not the enricher", enrich.SourceOSV, 0},
+		{"federatedcode is a host job's replay", enrich.SourceFederatedCode, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := newFakeObserver()
+			fake := &fakeSink{responses: []response{{}}}
 
-	rec, err := runOneShotPolicy(t, fixtureDir, fake,
-		enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD}},
-		pipeline.Deps{Observer: obs})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if rec.Documents != 1 {
-		t.Errorf("Documents = %d, want 1: a missing enricher never drops a document", rec.Documents)
-	}
-	if len(rec.EnrichFailed) != 1 {
-		t.Fatalf("EnrichFailed = %+v, want exactly one entry", rec.EnrichFailed)
-	}
-	e := rec.EnrichFailed[0]
-	if e.Source != enrich.SourceEUVD {
-		t.Errorf("EnrichFailed[0].Source = %q, want %q", e.Source, enrich.SourceEUVD)
-	}
-	if !errors.Is(e, pipeline.ErrNoEnricher) {
-		t.Errorf("EnrichFailed[0] = %v, want errors.Is(ErrNoEnricher)", e)
-	}
-	if obs.enrichFailed["euvd"] != 1 {
-		t.Errorf("observer saw EnrichFailed(euvd) %d times, want 1", obs.enrichFailed["euvd"])
+			rec, err := runOneShotPolicy(t, fixtureDir, fake,
+				enrich.Policy{Sources: []enrich.Source{tc.source}},
+				pipeline.Deps{Observer: obs})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if rec.Documents != 1 {
+				t.Errorf("Documents = %d, want 1: a missing enricher never drops a document", rec.Documents)
+			}
+			if len(rec.EnrichFailed) != tc.wantFailures {
+				t.Fatalf("EnrichFailed = %+v, want %d entries", rec.EnrichFailed, tc.wantFailures)
+			}
+			if tc.wantFailures == 0 {
+				return
+			}
+			e := rec.EnrichFailed[0]
+			if e.Source != tc.source {
+				t.Errorf("EnrichFailed[0].Source = %q, want %q", e.Source, tc.source)
+			}
+			if !errors.Is(e, pipeline.ErrNoEnricher) {
+				t.Errorf("EnrichFailed[0] = %v, want errors.Is(ErrNoEnricher)", e)
+			}
+			if obs.enrichFailed[string(tc.source)] != 1 {
+				t.Errorf("observer saw EnrichFailed(%s) %d times, want 1", tc.source, obs.enrichFailed[string(tc.source)])
+			}
+		})
 	}
 }
 

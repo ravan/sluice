@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.7.0 — 2026-09-03
+
+### Added
+
+- `enrich.Source.Runner()` and the `enrich.SourceRunner` set — `RunByEnricher`,
+  `RunByScanner`, `RunByReplay` — so a source says what produces its claims. A
+  source no table names is `RunByEnricher`, so a genuinely missing enricher is
+  still reported.
+- `enrich.SourceFederatedCode`, AboutCode's FederatedCode data. Nothing calls it
+  over the network: a host job replays a git clone of it.
+- `enrich.Severity{System, Score, Elements}` with `CVSS`, `EPSS` and
+  `(Severity).Version()`. The CVSS selection rule — the first severity whose
+  system starts `cvssv` *and* whose score parses as a number — is subtle and
+  identical for both vulnerability sources, so it lives once.
+- `pkg/enrich/federatedcode`: the `aboutcode.hashid` 0.2.0 path arithmetic
+  (`CorePurl`, `PurlHash`, `PathFor`, `VulnerabilityPath`), the two YAML readers
+  (`ParsePackageEntries`, `ParseAdvisory`, `Advisory.Facts`) and the git replay
+  (`Open`, `(*Repo).Replay`). A replay's claims are dated by the commits that
+  wrote them, so `ValidFrom` is what the source knew and when, not when we read
+  it.
+
+### Fixed
+
+- A GUAC scanner source is no longer reported as missing an enricher. `osv`,
+  `clearlydefined`, `eol` and `deps_dev` run inside the parser gated by
+  `Policy.ScanFlags()`, and never have an `enrich.Enricher`; `pipeline.Run`
+  looked one up for every allowed source and recorded `ErrNoEnricher` when it
+  found none. An org whose `enrich.sources` named one collected a false
+  enrichment failure per document. `enrichDocument` now skips a source whose
+  `Runner()` is not `RunByEnricher`.
+
+### Changed
+
+- `pkg/enrich/vulnerablecode` moved onto `enrich.Severity`: its unexported
+  `cvssOf` and its inline EPSS loop are gone, and `cvssPrefix` and `epssSystem`
+  moved to `severity.go`. No claim value changes.
+- `github.com/go-git/go-git/v5` and `github.com/package-url/packageurl-go` are
+  direct dependencies now; `pkg/enrich/federatedcode` imports both.
+
+
 ## v0.6.0 — 2026-09-03
 
 ### Added

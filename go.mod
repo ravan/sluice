@@ -4,7 +4,9 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/storage v1.60.0
+	github.com/go-git/go-git/v5 v5.16.5
 	github.com/guacsec/guac v1.1.0
+	github.com/package-url/packageurl-go v0.1.3
 	github.com/prometheus/client_golang v1.22.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -99,7 +101,6 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.9 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
-	github.com/go-git/go-git/v5 v5.16.5 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -164,7 +165,6 @@ require (
 	github.com/openvex/go-vex v0.2.5 // indirect
 	github.com/ossf/scorecard/v4 v4.13.1 // indirect
 	github.com/owenrumney/go-sarif/v2 v2.3.3 // indirect
-	github.com/package-url/packageurl-go v0.1.3 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pitabwire/natspubsub v0.1.9 // indirect

@@ -210,6 +210,29 @@ func TestStamp(t *testing.T) {
 	}
 }
 
+func TestSourceRunner(t *testing.T) {
+	cases := []struct {
+		source Source
+		want   SourceRunner
+	}{
+		{SourceEUVD, RunByEnricher},
+		{SourceVulnerableCode, RunByEnricher},
+		{SourceOSV, RunByScanner},
+		{SourceClearlyDefined, RunByScanner},
+		{SourceEOL, RunByScanner},
+		{SourceDepsDev, RunByScanner},
+		{SourceFederatedCode, RunByReplay},
+		{Source("nonesuch"), RunByEnricher},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.source), func(t *testing.T) {
+			if got := tc.source.Runner(); got != tc.want {
+				t.Errorf("Runner(%q) = %v, want %v", tc.source, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseJurisdiction(t *testing.T) {
 	cases := []struct {
 		name    string

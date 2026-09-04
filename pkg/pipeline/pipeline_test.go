@@ -517,10 +517,13 @@ func TestEnrichStampsTheJurisdictionFromThePolicy(t *testing.T) {
 			want: string(enrich.EU),
 		},
 		{
-			name:   "a us source stays us",
-			source: enrich.SourceOSV,
-			policy: enrich.Policy{Sources: []enrich.Source{enrich.SourceOSV}},
-			want:   string(enrich.US),
+			name:   "a hosted source can sit outside the eu",
+			source: enrich.SourceVulnerableCode,
+			policy: enrich.Policy{
+				Sources: []enrich.Source{enrich.SourceVulnerableCode},
+				Hosted:  map[enrich.Source]enrich.Jurisdiction{enrich.SourceVulnerableCode: enrich.US},
+			},
+			want: string(enrich.US),
 		},
 	}
 	for _, tc := range cases {

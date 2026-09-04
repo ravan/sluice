@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,13 +30,6 @@ const UserAgent = "VCIO_API_AGENT"
 
 // affectedPath is the purl-keyed V3 endpoint. The API is V3: /api/v2/ is 404.
 const affectedPath = "api/v3/affected-by-advisories"
-
-// cvssPrefix is what a scoring system's name starts with when its value is a
-// CVSS base score. epssSystem is the one whose value is an EPSS probability.
-const (
-	cvssPrefix = "cvssv"
-	epssSystem = "epss"
-)
 
 // ErrStatus is returned when the API answers with anything but 200.
 var ErrStatus = errors.New("vulnerablecode: unexpected status")
@@ -186,18 +178,19 @@ func vulnFacts(a advisory) []enrich.FactValue {
 		{Fact: enrich.FactAdvisoryID, Value: a.AdvisoryID},
 		{Fact: enrich.FactDescription, Value: a.Summary},
 	}
-	if s, ok := cvssOf(a.Severities); ok {
+	sevs := make([]enrich.Severity, len(a.Severities))
+	for i, s := range a.Severities {
+		sevs[i] = enrich.Severity{System: s.ScoringSystem, Score: s.Value, Elements: s.ScoringElements}
+	}
+	if s, ok := enrich.CVSS(sevs); ok {
 		facts = append(facts,
-			enrich.FactValue{Fact: enrich.FactCVSS, Value: s.Value},
-			enrich.FactValue{Fact: enrich.FactCVSSVersion, Value: strings.TrimPrefix(s.ScoringSystem, cvssPrefix)},
-			enrich.FactValue{Fact: enrich.FactCVSSVector, Value: s.ScoringElements},
+			enrich.FactValue{Fact: enrich.FactCVSS, Value: s.Score},
+			enrich.FactValue{Fact: enrich.FactCVSSVersion, Value: s.Version()},
+			enrich.FactValue{Fact: enrich.FactCVSSVector, Value: s.Elements},
 		)
 	}
-	for _, s := range a.Severities {
-		if s.ScoringSystem == epssSystem {
-			facts = append(facts, enrich.FactValue{Fact: enrich.FactEPSS, Value: s.Value})
-			break
-		}
+	if s, ok := enrich.EPSS(sevs); ok {
+		facts = append(facts, enrich.FactValue{Fact: enrich.FactEPSS, Value: s.Score})
 	}
 	for _, r := range a.References {
 		facts = append(facts, enrich.FactValue{Fact: enrich.FactReference, Value: r.URL})
@@ -213,22 +206,6 @@ func vulnFacts(a advisory) []enrich.FactValue {
 		}
 	}
 	return kept
-}
-
-// cvssOf is the first severity whose scoring system is a CVSS version and
-// whose value parses as a score. The same advisory can carry cvssv3.1, cvssv4,
-// generic_textual, epss and rhas, and a value can be empty or a word (D6).
-func cvssOf(severities []severity) (severity, bool) {
-	for _, s := range severities {
-		if !strings.HasPrefix(s.ScoringSystem, cvssPrefix) {
-			continue
-		}
-		if _, err := strconv.ParseFloat(s.Value, 64); err != nil {
-			continue
-		}
-		return s, true
-	}
-	return severity{}, false
 }
 
 // claim renders one fact. ValidFrom is FetchedAt: the V3 response carries no
