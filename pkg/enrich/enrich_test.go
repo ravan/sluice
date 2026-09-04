@@ -2,6 +2,7 @@ package enrich
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -230,6 +231,22 @@ func TestSourceRunner(t *testing.T) {
 				t.Errorf("Runner(%q) = %v, want %v", tc.source, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRunnersCoverSources is the check the runners table relies on: a source
+// added to Sources without an entry falls through to RunByEnricher, and the
+// pipeline then reports ErrNoEnricher for it on every document.
+func TestRunnersCoverSources(t *testing.T) {
+	for _, s := range Sources {
+		if _, ok := runners[s]; !ok {
+			t.Errorf("source %q has no runners entry: say what runs it", s)
+		}
+	}
+	for s := range runners {
+		if !slices.Contains(Sources, s) {
+			t.Errorf("runners names %q, which is not in Sources", s)
+		}
 	}
 }
 

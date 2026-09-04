@@ -32,9 +32,11 @@ type Result struct {
 	Missing  []string       // subject purls with no file, sorted
 }
 
-// Repo is an opened FederatedCode data repository.
+// Repo is an opened FederatedCode data repository. from is the commit every
+// history walk starts at, resolved once when the repository is opened.
 type Repo struct {
-	git *git.Repository
+	git  *git.Repository
+	from plumbing.Hash
 }
 
 // ErrNoRepo is returned when dir holds no repository and url is empty.
@@ -51,7 +53,7 @@ func Open(ctx context.Context, dir, url string) (*Repo, error) {
 		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) && !errors.Is(err, git.ErrRemoteNotFound) {
 			return nil, fmt.Errorf("federatedcode: fetch %s: %w", dir, err)
 		}
-		return &Repo{git: r}, nil
+		return &Repo{git: r, from: tip(r)}, nil
 	}
 	if url == "" {
 		return nil, fmt.Errorf("%w: %s", ErrNoRepo, dir)
@@ -61,7 +63,28 @@ func Open(ctx context.Context, dir, url string) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("federatedcode: clone %s: %w", url, err)
 	}
-	return &Repo{git: r}, nil
+	return &Repo{git: r, from: tip(r)}, nil
+}
+
+// tip is the commit a replay reads the source at. A fetch moves the remote
+// ref, never the local branch, so walking from HEAD would replay the clone as
+// it was when it was made and ignore everything the fetch just downloaded. The
+// remote's copy of the checked-out branch is preferred, then the remote's own
+// HEAD; a repository with no remote falls back to plumbing.ZeroHash, which
+// go-git reads as HEAD.
+func tip(r *git.Repository) plumbing.Hash {
+	names := []plumbing.ReferenceName{plumbing.NewRemoteHEADReferenceName(git.DefaultRemoteName)}
+	if head, err := r.Head(); err == nil && head.Name().IsBranch() {
+		remote := plumbing.NewRemoteReferenceName(git.DefaultRemoteName, head.Name().Short())
+		names = append([]plumbing.ReferenceName{remote}, names...)
+	}
+
+	for _, name := range names {
+		if ref, err := r.Reference(name, true); err == nil && !ref.Hash().IsZero() {
+			return ref.Hash()
+		}
+	}
+	return plumbing.ZeroHash
 }
 
 // Replay walks the history of every subject's VulnerabilitiesFile and returns
@@ -98,7 +121,11 @@ func (r *Repo) Replay(ctx context.Context, req Request) (Result, error) {
 		res.Claims = append(res.Claims, claims...)
 
 		for _, vcid := range vcids {
-			commits, err := r.history(ctx, VulnerabilityPath(vcid))
+			path, err := VulnerabilityPath(vcid)
+			if err != nil {
+				return Result{}, err
+			}
+			commits, err := r.history(ctx, path)
 			if err != nil {
 				return Result{}, err
 			}
@@ -120,7 +147,7 @@ func (r *Repo) Replay(ctx context.Context, req Request) (Result, error) {
 // history is every commit that touched path, oldest first. go-git's Log yields
 // newest first, so the walk is reversed.
 func (r *Repo) history(ctx context.Context, path string) ([]*object.Commit, error) {
-	iter, err := r.git.Log(&git.LogOptions{FileName: &path, Order: git.LogOrderCommitterTime})
+	iter, err := r.git.Log(&git.LogOptions{From: r.from, FileName: &path, Order: git.LogOrderCommitterTime})
 	if err != nil {
 		return nil, fmt.Errorf("federatedcode: log %s: %w", path, err)
 	}
@@ -167,7 +194,11 @@ func (r *Repo) packageClaims(commits []*object.Commit, purl string, req Request,
 				continue
 			}
 			for _, vcid := range e.AffectedBy {
-				advisory, err := readYAML(c, VulnerabilityPath(vcid), ParseAdvisory)
+				advisoryPath, err := VulnerabilityPath(vcid)
+				if err != nil {
+					return nil, nil, err
+				}
+				advisory, err := readYAML(c, advisoryPath, ParseAdvisory)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -186,7 +217,10 @@ func (r *Repo) packageClaims(commits []*object.Commit, purl string, req Request,
 // dated by the commits that changed the advisory file rather than by the
 // package file's own history.
 func (r *Repo) advisoryClaims(commits []*object.Commit, vcid string, req Request, read map[plumbing.Hash]bool) ([]enrich.Claim, error) {
-	path := VulnerabilityPath(vcid)
+	path, err := VulnerabilityPath(vcid)
+	if err != nil {
+		return nil, err
+	}
 
 	var out []enrich.Claim
 	for _, c := range commits {

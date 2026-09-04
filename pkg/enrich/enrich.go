@@ -59,8 +59,10 @@ const (
 	RunByReplay                       // a host job replays it; the pipeline never calls it
 )
 
-// runners names the source whose Runner is not RunByEnricher, plus euvd and
-// vulnerablecode explicitly, so a new source cannot land here by accident.
+// runners names every source in Sources, the ones the pipeline calls included,
+// so adding a source means saying what runs it. TestRunnersCoverSources is what
+// holds that: without it a new source falls through Runner's default and
+// collects an ErrNoEnricher per document.
 var runners = map[Source]SourceRunner{
 	SourceEUVD:           RunByEnricher,
 	SourceVulnerableCode: RunByEnricher,
@@ -69,6 +71,20 @@ var runners = map[Source]SourceRunner{
 	SourceEOL:            RunByScanner,
 	SourceDepsDev:        RunByScanner,
 	SourceFederatedCode:  RunByReplay,
+}
+
+// String names the runner, so a log line or a test failure reads as
+// "run_by_scanner" rather than as its ordinal.
+func (r SourceRunner) String() string {
+	switch r {
+	case RunByScanner:
+		return "run_by_scanner"
+	case RunByReplay:
+		return "run_by_replay"
+	case RunByEnricher:
+		return "run_by_enricher"
+	}
+	return fmt.Sprintf("SourceRunner(%d)", int(r))
 }
 
 // Runner says what runs s. A source no table names is RunByEnricher, so a
@@ -83,6 +99,10 @@ func (s Source) Runner() SourceRunner {
 // Jurisdictions maps a source to the jurisdiction of the host it calls.
 // vulnerablecode is deliberately absent: its host is a deployment choice, so
 // under eu_only it does not run until slice 2b sets it from config.
+// federatedcode is absent for the same reason: the replay reads a local git
+// clone and calls no host of its own, so where its data came from is the
+// operator's mirror choice. Both fall through to Other, which under eu_only
+// means blocked until Policy.Hosted names the jurisdiction.
 var Jurisdictions = map[Source]Jurisdiction{
 	SourceEUVD:           EU,
 	SourceOSV:            US,

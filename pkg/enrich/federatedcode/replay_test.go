@@ -31,6 +31,35 @@ var (
 	commit3At = time.Date(2026, 9, 2, 18, 0, 0, 0, time.UTC)
 )
 
+// commitTo writes files into the repository at dir and commits them at when.
+func commitTo(t *testing.T, dir string, when time.Time, files map[string]string) {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("open %s: %v", dir, err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	for name, body := range files {
+		full := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	sig := &object.Signature{Name: "fixture", Email: "fixture@example.test", When: when}
+	if _, err := wt.Commit(when.Format(time.RFC3339), &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
 // buildRepo writes the three-commit fixture repository into a temp directory.
 // A commit date is fixed only by setting the same signature as author and
 // committer, which is what the Silt fixture builder does too.
@@ -41,29 +70,13 @@ func buildRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	wt, err := repo.Worktree()
-	if err != nil {
+	if _, err := repo.Worktree(); err != nil {
 		t.Fatalf("worktree: %v", err)
 	}
 
 	commit := func(when time.Time, files map[string]string) {
 		t.Helper()
-		for name, body := range files {
-			full := filepath.Join(dir, filepath.FromSlash(name))
-			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-				t.Fatalf("mkdir %s: %v", name, err)
-			}
-			if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
-				t.Fatalf("write %s: %v", name, err)
-			}
-		}
-		if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-			t.Fatalf("add: %v", err)
-		}
-		sig := &object.Signature{Name: "fixture", Email: "fixture@example.test", When: when}
-		if _, err := wt.Commit(when.Format(time.RFC3339), &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
-			t.Fatalf("commit: %v", err)
-		}
+		commitTo(t, dir, when, files)
 	}
 
 	pkgOne := "- purl: " + lodashPurl + "\n  affected_by_vulnerabilities:\n    - " + vcid1 + "\n  fixing_vulnerabilities: []\n"
@@ -221,5 +234,25 @@ func TestOpenClones(t *testing.T) {
 		t.Errorf("clone gave packages=%d commits=%d claims=%d, want %d %d %d",
 			cloned.Packages, cloned.Commits, len(cloned.Claims),
 			want.Packages, want.Commits, len(want.Claims))
+	}
+}
+
+// TestOpenFetchesNewCommits is the whole point of the fetch in Open: a fetch
+// moves the remote ref and never the local branch, so a replay that walked from
+// HEAD would read the clone as it was made and ignore what was just downloaded.
+func TestOpenFetchesNewCommits(t *testing.T) {
+	src := buildRepo(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	if _, err := Open(t.Context(), dir, src); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	pkgThree := "- purl: " + lodashPurl + "\n  affected_by_vulnerabilities:\n    - " + vcid1 +
+		"\n    - " + vcid2 + "\n  fixing_vulnerabilities: []\n# published after the clone\n"
+	commitTo(t, src, commit3At.Add(24*time.Hour), map[string]string{lodashFile: pkgThree})
+
+	res := replayLodash(t, dir)
+	if res.Commits != 4 {
+		t.Errorf("commits = %d, want 4: the fetched commit was not replayed", res.Commits)
 	}
 }

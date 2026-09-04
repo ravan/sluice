@@ -97,9 +97,19 @@ func TestVulnerabilityPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.vcid, func(t *testing.T) {
-			if got := VulnerabilityPath(tt.vcid); got != tt.want {
+			got, err := VulnerabilityPath(tt.vcid)
+			if err != nil {
+				t.Fatalf("VulnerabilityPath(%q) returned error: %v", tt.vcid, err)
+			}
+			if got != tt.want {
 				t.Errorf("VulnerabilityPath(%q) = %q, want %q", tt.vcid, got, tt.want)
 			}
 		})
 	}
+
+	t.Run("too short", func(t *testing.T) {
+		if _, err := VulnerabilityPath("VCID-"); !errors.Is(err, ErrVCID) {
+			t.Errorf("error = %v, want errors.Is(err, ErrVCID)", err)
+		}
+	})
 }

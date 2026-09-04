@@ -54,6 +54,10 @@ var BitCounts = map[string]int{
 // ErrPurl is returned when a purl will not parse.
 var ErrPurl = errors.New("federatedcode: bad purl")
 
+// ErrVCID is returned when a vulnerability id is too short to name the
+// directory it is filed under.
+var ErrVCID = errors.New("federatedcode: bad vulnerability id")
+
 // CorePurl normalises a purl and drops version, qualifiers and subpath: the
 // string the hash is taken over.
 // verbatim exception — which fields survive is the decision, packageurl-go
@@ -112,11 +116,13 @@ func PathFor(purl string) (PackagePath, error) {
 	}, nil
 }
 
-// VulnerabilityPath is where one VCID's file sits under VulnerabilitiesDir.
-func VulnerabilityPath(vcid string) string {
-	dir := ""
-	if len(vcid) >= 7 {
-		dir = vcid[5:7]
+// VulnerabilityPath is where one VCID's file sits under VulnerabilitiesDir. The
+// bucket is the VCID's own sixth and seventh characters, so a VCID too short to
+// have them names no file and is an error rather than a path that reads well
+// and finds nothing.
+func VulnerabilityPath(vcid string) (string, error) {
+	if len(vcid) < 7 {
+		return "", fmt.Errorf("%w: %q", ErrVCID, vcid)
 	}
-	return fmt.Sprintf("%s/%s/%s.yml", VulnerabilitiesDir, dir, vcid)
+	return fmt.Sprintf("%s/%s/%s.yml", VulnerabilitiesDir, vcid[5:7], vcid), nil
 }

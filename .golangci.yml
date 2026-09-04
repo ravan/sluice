@@ -26,7 +26,7 @@ linters:
     - nolintlint # not a code check: a guard so the first //nolint carries a reason
   settings:
     gocognit:
-      min-complexity: 30
+      min-complexity: 25
     nolintlint:
       require-explanation: true
       require-specific: true

@@ -44,7 +44,7 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `Source`, `Jurisdiction` | String types. The seven `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
 | `Sources`, `Jurisdictions` | The closed source set, and each fixed-host source's jurisdiction. `vulnerablecode` has no entry: its host is a deployment choice, so `Policy.Hosted` supplies it. |
 | `AllJurisdictions` | The closed jurisdiction set: `EU`, `US`, `Other`. |
-| `SourceRunner`, `(Source).Runner()` | What produces a source's claims: `RunByEnricher` (the pipeline calls an `Enricher`, per document), `RunByScanner` (GUAC runs it in the parser, gated by `ScanFlags`), `RunByReplay` (a host job replays it). A source no table names is `RunByEnricher`, so a missing enricher is still reported. |
+| `SourceRunner`, `(SourceRunner).String()`, `(Source).Runner()` | What produces a source's claims: `RunByEnricher` (the pipeline calls an `Enricher`, per document), `RunByScanner` (GUAC runs it in the parser, gated by `ScanFlags`), `RunByReplay` (a host job replays it). `String` gives `run_by_scanner` and its siblings. A source no table names is `RunByEnricher`, so a missing enricher is still reported; a test asserts every `Sources` entry is named, so that default is a safety net rather than the way a source is registered. |
 | `ParsePolicy([]string, bool, map[Source]Jurisdiction) (Policy, error)` | Validates source names and hosted jurisdictions. `ErrUnknownSource` (wrapped), a duplicate error, or `ErrUnknownJurisdiction` (wrapped). |
 | `ParseJurisdiction(string) (Jurisdiction, error)` | Validates a jurisdiction name read out of config. `ErrUnknownJurisdiction` (wrapped). |
 | `Policy{Sources, EUOnly, Hosted}` | The org's rules. `Sources` is priority order. `Hosted` is the per-install jurisdiction of a source whose host is a deployment choice; it wins over `Jurisdictions`. |
@@ -100,14 +100,14 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `PurlHash(corePurl string, bits int) string` | `get_purl_hash`: sha256 -> big-endian `big.Int` -> mod 2**bits -> `%0*x`. |
 | `PackagePath{Bucket, Core}`, `(PackagePath).Dir()` | Where one package's data files sit. `Dir` joins the two. |
 | `PathFor(purl string) (PackagePath, error)` | `get_package_base_dir`. |
-| `VulnerabilityPath(vcid string) string` | Where one VCID's file sits: characters 5 and 6 of the VCID name its directory. |
+| `VulnerabilityPath(vcid string) (string, error)` | Where one VCID's file sits: characters 5 and 6 of the VCID name its directory. A VCID too short to have them is `ErrVCID`, not a path that finds nothing. |
 | `PackageEntry{Purl, AffectedBy, Fixing}` | One entry of a `vulnerabilities.yml` file. |
 | `Advisory{VulnerabilityID, Aliases, Summary, Severities, References}`, `Severity`, `Reference` | One `aboutcode-vulnerabilities` file. Its `Severity` is the YAML shape; `enrich.Severity` is the normalised one. |
 | `ParsePackageEntries([]byte)`, `ParseAdvisory([]byte)` | A malformed document is a wrapped error, never a partial result. |
 | `(Advisory).Facts() []enrich.FactValue` | What the advisory states about the vulnerability itself, in claim order. An empty value is not a fact. |
 | `Request{Subjects, Vulns}` | What a caller wants replayed: exact versioned purl to its `PkgVersion` node, and lower-cased vulnerability id to its `Vulnerability` node. A replay hangs claims on nodes the caller already holds and never invents one. |
 | `Result{Packages, Commits, Claims, Missing}` | One replay's outcome: the counts a job receipt reports. |
-| `Open(ctx, dir, url string) (*Repo, error)` | Opens the clone at `dir`, cloning it from `url` when `dir` holds none, and fetches an existing one. Neither possible is `ErrNoRepo`. |
+| `Open(ctx, dir, url string) (*Repo, error)` | Opens the clone at `dir`, cloning it from `url` when `dir` holds none, and fetches an existing one. A replay reads the fetched remote ref, not the local `HEAD` a fetch never moves. Neither possible is `ErrNoRepo`. |
 | `(*Repo).Replay(ctx, Request) (Result, error)` | Walks each subject's data history and returns one claim per fact per commit, each `ValidFrom` and `FetchedAt` the commit's committer time. Claims come back oldest first. |
 
 ## `pkg/varve`

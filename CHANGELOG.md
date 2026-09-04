@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A FederatedCode replay reads what the fetch downloaded. `Open` fetches, but a
+  fetch moves the remote ref and never the local branch or `HEAD`, and
+  `(*Repo).Replay` walked from `HEAD`. Every replay after the first therefore
+  read the clone as it was made and ignored the new commits it had just pulled.
+  `Open` now resolves the remote's copy of the checked-out branch once and every
+  history walk starts there; a repository with no remote still walks `HEAD`.
+- `federatedcode.VulnerabilityPath` returns `ErrVCID` for a vulnerability id too
+  short to name the directory it is filed under. It used to build
+  `aboutcode-vulnerabilities//<id>.yml`, a path that reads correctly and matches
+  no file.
+
+### Added
+
+- `(enrich.SourceRunner).String()` — `run_by_enricher`, `run_by_scanner`,
+  `run_by_replay` — so a log line or a test failure names the runner instead of
+  its ordinal.
+- Doc comments on `federatedcode.Advisory`, `Severity`, `Reference`,
+  `ParsePackageEntries` and `ParseAdvisory`.
+
+### Internal
+
+- `TestRunnersCoverSources` asserts the `runners` table names every entry of
+  `enrich.Sources` and nothing else. The table's comment claimed a new source
+  could not land there by accident; it could, and would then have fallen through
+  `Runner`'s default to `RunByEnricher` and collected an `ErrNoEnricher` per
+  document — the bug v0.7.0 set out to fix.
+- `gocognit.min-complexity` 30 → 25. The repo is clean at 25 with the named
+  backlog exclusions unchanged, so the looser threshold was hiding nothing.
+- `enrich.SourceFederatedCode` is deliberately absent from
+  `enrich.Jurisdictions`, for the same reason `vulnerablecode` is: the replay
+  reads a local clone and calls no host, so where the data came from is the
+  operator's mirror choice. Recorded in the comment.
+
 ## v0.7.0 — 2026-09-03
 
 ### Added

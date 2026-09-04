@@ -9,14 +9,15 @@ import (
 )
 
 // PackageEntry is one entry of a vulnerabilities.yml file: what the repository
-// states about one exact package version. Advisory is one
-// aboutcode-vulnerabilities file, Severity one of its scored entries.
+// states about one exact package version.
 type PackageEntry struct {
 	Purl       string   `yaml:"purl"`
 	AffectedBy []string `yaml:"affected_by_vulnerabilities"`
 	Fixing     []string `yaml:"fixing_vulnerabilities"`
 }
 
+// Advisory is one aboutcode-vulnerabilities file: what the repository states
+// about one VCID.
 type Advisory struct {
 	VulnerabilityID string      `yaml:"vulnerability_id"`
 	Aliases         []string    `yaml:"aliases"`
@@ -25,16 +26,20 @@ type Advisory struct {
 	References      []Reference `yaml:"references"`
 }
 
+// Severity is one scored entry of an Advisory, in the field names the YAML
+// uses. enrich.Severity is what the claims are written from.
 type Severity struct {
 	Score           string `yaml:"score"`
 	ScoringSystem   string `yaml:"scoring_system"`
 	ScoringElements string `yaml:"scoring_elements"`
 }
 
+// Reference is one link an Advisory carries.
 type Reference struct {
 	URL string `yaml:"url"`
 }
 
+// ParsePackageEntries reads a vulnerabilities.yml file.
 func ParsePackageEntries(b []byte) ([]PackageEntry, error) {
 	var entries []PackageEntry
 	if err := yaml.Unmarshal(b, &entries); err != nil {
@@ -43,6 +48,7 @@ func ParsePackageEntries(b []byte) ([]PackageEntry, error) {
 	return entries, nil
 }
 
+// ParseAdvisory reads one aboutcode-vulnerabilities file.
 func ParseAdvisory(b []byte) (Advisory, error) {
 	var a Advisory
 	if err := yaml.Unmarshal(b, &a); err != nil {
