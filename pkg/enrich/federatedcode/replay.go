@@ -87,8 +87,10 @@ func tip(r *git.Repository) plumbing.Hash {
 	return plumbing.ZeroHash
 }
 
-// Replay walks the history of every subject's VulnerabilitiesFile and returns
-// one claim per fact per commit, each dated by that commit.
+// Replay walks two histories per subject and returns one claim per fact per
+// commit, each dated by the commit that stated it. The package file's history
+// dates the affected claims; each advisory file's own history dates that
+// vulnerability's facts. Result.Commits is the size of the union.
 func (r *Repo) Replay(ctx context.Context, req Request) (Result, error) {
 	purls := make([]string, 0, len(req.Subjects))
 	for purl := range req.Subjects {
