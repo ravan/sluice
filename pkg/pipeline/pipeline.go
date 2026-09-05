@@ -112,12 +112,14 @@ func (noopObserver) EnrichFailed(_ enrich.Source) {}
 
 // Deps are the injected I/O/clock/observability dependencies (the core stays pure).
 type Deps struct {
-	Sink       Sink              // required
-	Observer   Observer          // nil ⇒ noopObserver
-	Now        func() time.Time  // nil ⇒ func() time.Time { return time.Now().UTC() }
-	Logger     *slog.Logger      // nil ⇒ slog over io.Discard
-	Decorators []Decorator       // run in order; each sees the stream the previous ones extended
-	Enrichers  []enrich.Enricher // available sources; the config's policy picks and orders them
+	expand       expandFunc        // internal expansion seam for receipt tests
+	DrainTimeout time.Duration     // accepted-work grace period after cancellation; zero defaults to 30 seconds
+	Sink         Sink              // required
+	Observer     Observer          // nil ⇒ noopObserver
+	Now          func() time.Time  // nil ⇒ func() time.Time { return time.Now().UTC() }
+	Logger       *slog.Logger      // nil ⇒ slog over io.Discard
+	Decorators   []Decorator       // run in order; each sees the stream the previous ones extended
+	Enrichers    []enrich.Enricher // available sources; the config's policy picks and orders them
 }
 
 // sourcesFromConfig maps configured receivers into a guacseam.Sources (Scan and
@@ -173,6 +175,8 @@ func foldClaims(s varve.Stream, claims []enrich.StampedClaim) (varve.Stream, int
 	return varve.Merge(streams...), len(claims)
 }
 
+type expandFunc func(context.Context, []string, int, guacseam.DocumentFunc) (guacseam.Expansion, error)
+
 // Run builds the collect→assemble→decorate→sink pipeline from cfg and runs it.
 // It builds a collector per configured receiver (polling when any receiver's
 // Poll>0, else one pass) and uses cfg.Processors.ValidTime; the caller supplies
@@ -183,12 +187,17 @@ func foldClaims(s varve.Stream, claims []enrich.StampedClaim) (varve.Stream, int
 // run merges every document's stream (varve.Merge: content-derived ids make
 // this equal to one batched assembly) and sinks ONCE, so it stays one
 // transaction. Returns the cumulative Receipt (the daemon logs it at shutdown;
-// the one-shot prints it). A one-pass sink failure is returned; a poll-mode
-// sink failure is logged+counted and polling continues.
+// the one-shot prints it). Any sink failure terminates the run with its committed progress in the receipt.
 func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
+	expandDepsDev := deps.expand
+	if expandDepsDev == nil {
+		expandDepsDev = guacseam.ExpandDepsDev
+	}
 	if cfg.Receivers.Files == nil && cfg.Receivers.OCI == nil && cfg.Receivers.S3 == nil && cfg.Receivers.GCS == nil {
 		return Receipt{}, fmt.Errorf("pipeline: at least one receiver is required")
 	}
+	workCtx, stopProcessing := guacseam.DrainContext(ctx, deps.DrainTimeout)
+	defer stopProcessing()
 	observer := deps.Observer
 	if observer == nil {
 		observer = noopObserver{}
@@ -268,6 +277,12 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		}
 		sum := sha256.Sum256(raw)
 		digest := hex.EncodeToString(sum[:])
+		for _, failure := range p.ScanFailed {
+			source := enrich.Source(failure.Source)
+			rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: source, Digest: digest, Err: failure.Err})
+			observer.EnrichFailed(source)
+			logger.Warn("scanner failed", "source", source, "digest", digest, "error", failure.Err)
+		}
 		records := enrichDocument(ctx, digest, res.Stream, t)
 		if len(deps.Decorators) == 0 {
 			return records, true
@@ -316,21 +331,28 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		return nil
 	}
 
-	expand := func(ctx context.Context, source string, purls []string, handle guacseam.DocumentFunc) {
+	expand := func(ctx context.Context, source string, purls []string, handle guacseam.DocumentFunc) error {
 		if !expandCfg.DepsDev {
-			return
+			return nil
 		}
 		remaining := expandCfg.MaxDocs - rec.Expanded
 		if remaining <= 0 {
-			return
+			return nil
 		}
-		exp, eerr := guacseam.ExpandDepsDev(ctx, purls, remaining, handle)
+		exp, eerr := expandDepsDev(ctx, purls, remaining, handle)
+		rec.Skipped = append(rec.Skipped, exp.Failed...)
+		for _, failure := range exp.Failed {
+			observer.DocumentSkipped()
+			logger.Warn("expansion document skipped", "source", failure.Source, "error", failure.Err)
+		}
 		rec.Expanded += exp.Collected
 		rec.ExpansionExhausted = rec.ExpansionExhausted || exp.Exhausted
 		observer.ExpansionDocuments(exp.Collected)
 		if eerr != nil {
 			logger.Error("expansion failed", "source", source, "error", eerr)
+			return eerr
 		}
+		return nil
 	}
 
 	// A one-shot pass merges every document's (and expansion document's)
@@ -349,13 +371,12 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			}
 			batch = append(batch, s)
 			batched++
-			expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
+			return expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
 				if es, ok := prepare(ctx, ep); ok {
 					batch = append(batch, es)
 				}
-				return nil // best-effort: an expansion doc never aborts expansion or the run
+				return nil
 			})
-			return nil
 		}
 	} else {
 		fn = func(ctx context.Context, p guacseam.Parsed) error {
@@ -365,37 +386,38 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			}
 			if err := ingestStream(ctx, p.Source, s); err != nil {
 				observer.DocumentFailed()
-				return nil // poll mode: a sink failure is logged+counted and polling continues
+				return err
 			}
 			observer.DocumentIngested()
-			expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
+			return expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
 				es, ok := prepare(ctx, ep)
 				if !ok {
 					return nil
 				}
 				if err := ingestStream(ctx, ep.Source, es); err != nil {
 					observer.DocumentFailed()
+					return err
 				}
-				return nil // best-effort: an expansion doc never aborts expansion or the run
+				return nil
 			})
-			return nil
 		}
 	}
 
 	src := sourcesFromConfig(cfg.Receivers)
 	src.Scan = scan
+	src.ProcessingContext = workCtx
 	src.OnSkip = func(fd guacseam.FailedDocument) {
 		observer.DocumentSkipped()
 		logger.Warn("document skipped", "source", fd.Source, "error", fd.Err)
 	}
 	out, err := guacseam.Collect(ctx, src, fn)
 	rec.Documents = out.Documents
-	rec.Skipped = out.Failed
+	rec.Skipped = append(rec.Skipped, out.Failed...)
 	if err != nil {
 		return rec, fmt.Errorf("running receivers: %w", err)
 	}
 	if len(batch) > 0 {
-		if err := ingestStream(ctx, "batch", varve.Merge(batch...)); err != nil {
+		if err := ingestStream(workCtx, "batch", varve.Merge(batch...)); err != nil {
 			for i := 0; i < batched; i++ {
 				observer.DocumentFailed()
 			}

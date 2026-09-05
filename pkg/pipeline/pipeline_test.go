@@ -433,61 +433,38 @@ func (o *countingObserver) DocumentDecorateFailed()      { o.mu.Lock(); o.decora
 func (o *countingObserver) ClaimsEmitted(_ int)          {}
 func (o *countingObserver) EnrichFailed(_ enrich.Source) {}
 
-func TestRunPollContinuesAfterSinkFailure(t *testing.T) {
+func TestRunPollStopsAfterSinkFailure(t *testing.T) {
 	dir := t.TempDir()
+	copyFixture(t, dir, "a.json")
 	sink := &flakySink{sig: make(chan int, 16)}
 	obs := &countingObserver{}
-	cfg := pollConfig(dir, 25*time.Millisecond)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	type result struct {
-		rec pipeline.Receipt
-		err error
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rec, err := pipeline.Run(ctx, pollConfig(dir, 25*time.Millisecond), pipeline.Deps{Sink: sink, Observer: obs})
+	var ingestErr *varve.IngestError
+	if !errors.As(err, &ingestErr) {
+		t.Fatalf("Run error = %v, want sink failure", err)
 	}
-	done := make(chan result, 1)
+	if rec.Documents != 1 || obs.failed != 1 {
+		t.Fatalf("receipt=%+v, failed=%d", rec, obs.failed)
+	}
+	// A fresh run must replay the unchanged failed file.
+	recovered := &pollSink{got: make(chan varve.Stream, 8)}
+	retryCtx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
 	go func() {
-		rec, err := pipeline.Run(ctx, cfg, pipeline.Deps{Sink: sink, Observer: obs, Now: func() time.Time { return pipeTestNow }})
-		done <- result{rec, err}
+		_, err := pipeline.Run(retryCtx, pollConfig(dir, 25*time.Millisecond), pipeline.Deps{Sink: recovered})
+		done <- err
 	}()
-
-	waitCall := func(want int) {
-		t.Helper()
-		deadline := time.After(5 * time.Second)
-		for {
-			select {
-			case n := <-sink.sig:
-				if n >= want {
-					return
-				}
-			case <-deadline:
-				t.Fatalf("timed out waiting for sink call >= %d", want)
-			}
-		}
-	}
-
-	// The GUAC file collector emits each file at most once (ModTime > lastChecked),
-	// so a second document — not a re-ingest of the first — provides the succeeding
-	// call that proves polling continued past the failure.
-	copyFixture(t, dir, "a.json")
-	waitCall(1) // first Ingest fails (500)
-	copyFixture(t, dir, "b.json")
-	waitCall(2) // a later Ingest succeeds — polling continued
-
-	cancel()
 	select {
-	case res := <-done:
-		if res.err != nil {
-			t.Fatalf("Run returned error on cancel, want nil (poll mode swallows a sink failure): %v", res.err)
-		}
+	case <-recovered.got:
+		stop()
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for Run to return")
+		stop()
+		t.Fatal("unchanged failed document was not replayed")
 	}
-
-	obs.mu.Lock()
-	failed := obs.failed
-	obs.mu.Unlock()
-	if failed != 1 {
-		t.Errorf("observer DocumentFailed = %d, want 1", failed)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

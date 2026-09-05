@@ -2,6 +2,7 @@ package guacseam
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/guacsec/guac/pkg/collectsub/datasource"
@@ -18,6 +19,7 @@ type Expansion struct {
 	Collected int
 	Limit     int
 	Exhausted bool
+	Failed    []FailedDocument
 }
 
 // docRetriever is the deps.dev collector's method, isolated as a consumer-side seam so the
@@ -55,41 +57,61 @@ func ExpandDepsDev(ctx context.Context, purls []string, limit int, fn DocumentFu
 func expansionHandler(fn DocumentFunc) func(context.Context, *processor.Document) error {
 	return func(ctx context.Context, doc *processor.Document) error {
 		collector.AddChildLogger(logging.FromContext(ctx), doc)
-		preds, subpurls, perr := processAndParse(ctx, doc, ScanFlags{})
+		preds, subpurls, perr := processAndParse(ctx, doc)
 		if perr != nil {
-			return nil // best-effort: a malformed expansion doc is skipped, not fatal
+			return &expansionParseError{FailedDocument{Source: doc.SourceInformation.Source, Err: perr}}
 		}
 		return fn(ctx, Parsed{Source: doc.SourceInformation.Source, Origin: OriginExpansion, Doc: doc, Preds: preds, Purls: subpurls})
 	}
 }
+
+type expansionParseError struct{ FailedDocument }
+
+func (e *expansionParseError) Error() string { return e.Err.Error() }
 
 // drainExpansion is the testable core: run r.RetrieveArtifacts in a goroutine emitting to a
 // channel; process up to limit documents through handle; drain-and-discard the overflow
 // (setting Exhausted) so the goroutine always finishes; surface the first handle error or
 // the retriever's error.
 func drainExpansion(ctx context.Context, r docRetriever, limit int, handle func(context.Context, *processor.Document) error) (Expansion, error) {
+	intake, stop := context.WithCancel(ctx)
+	defer stop()
 	docs := make(chan *processor.Document)
 	errc := make(chan error, 1)
-	go func() { errc <- r.RetrieveArtifacts(ctx, docs); close(docs) }()
+	go func() { errc <- r.RetrieveArtifacts(intake, docs); close(docs) }()
 
 	exp := Expansion{Limit: limit}
-	var handleErr error
-	for doc := range docs {
-		if handleErr != nil {
-			continue // drain remaining docs so the goroutine can finish
+collect:
+	for {
+		var doc *processor.Document
+		select {
+		case d, ok := <-docs:
+			if !ok {
+				break collect
+			}
+			doc = d
+		case <-ctx.Done():
+			stop()
+			go drainCollectors(context.WithoutCancel(ctx), docs)
+			return exp, fmt.Errorf("deps.dev expansion canceled: %w", ctx.Err())
 		}
+
 		if exp.Collected >= limit {
 			exp.Exhausted = true
 			continue // budget hit: drain-and-discard the rest
 		}
 		if err := handle(ctx, doc); err != nil {
-			handleErr = err
-			continue
+			var parseErr *expansionParseError
+			if errors.As(err, &parseErr) {
+				exp.Failed = append(exp.Failed, parseErr.FailedDocument)
+				exp.Collected++
+				continue
+			}
+			stop()
+			go drainCollectors(context.WithoutCancel(ctx), docs)
+			return exp, err
 		}
 		exp.Collected++
-	}
-	if handleErr != nil {
-		return exp, handleErr
 	}
 	if err := <-errc; err != nil {
 		return exp, fmt.Errorf("deps.dev expansion: %w", err)

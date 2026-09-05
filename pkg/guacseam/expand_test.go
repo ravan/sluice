@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guacsec/guac/pkg/handler/processor"
 )
@@ -116,10 +117,58 @@ func TestExpansionHandlerMarksOriginExpansion(t *testing.T) {
 
 	// A malformed expansion document is skipped, never fatal.
 	bad := &processor.Document{Blob: []byte(`{"not":"a document"}`), SourceInformation: processor.SourceInformation{Source: "bad"}}
-	if err := handle(context.Background(), bad); err != nil {
-		t.Errorf("handle(bad) = %v, want nil", err)
+	var parseErr *expansionParseError
+	if err := handle(context.Background(), bad); !errors.As(err, &parseErr) {
+		t.Errorf("handle(bad) = %v, want accounted parse failure", err)
 	}
 	if len(got) != 1 {
 		t.Errorf("fn called %d times after a bad doc, want still 1", len(got))
+	}
+}
+
+func TestMalformedExpansionIsCounted(t *testing.T) {
+	exp, err := drainExpansion(context.Background(), &fakeRetriever{emit: 3}, 5, expansionHandler(func(context.Context, Parsed) error { t.Fatal("malformed doc reached callback"); return nil }))
+	if err != nil || len(exp.Failed) != 3 || exp.Collected != 3 {
+		t.Fatalf("expansion = %+v, %v", exp, err)
+	}
+}
+
+type stalledRetriever struct{ release <-chan struct{} }
+
+func (s stalledRetriever) RetrieveArtifacts(context.Context, chan<- *processor.Document) error {
+	<-s.release
+	return nil
+}
+func TestExpansionCancellationDoesNotWaitForRetriever(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := make(chan struct{})
+	defer close(release)
+	cancel()
+	_, err := drainExpansion(ctx, stalledRetriever{release}, 5, func(context.Context, *processor.Document) error { return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+type cancelSendRetriever struct{ done chan struct{} }
+
+func (c cancelSendRetriever) RetrieveArtifacts(ctx context.Context, docs chan<- *processor.Document) error {
+	defer close(c.done)
+	<-ctx.Done()
+	docs <- &processor.Document{}
+	return ctx.Err()
+}
+func TestExpansionTimeoutReleasesUnconditionalSend(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	_, err := drainExpansion(ctx, cancelSendRetriever{done}, 1, func(context.Context, *processor.Document) error { return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("retriever stuck after cancellation")
 	}
 }
