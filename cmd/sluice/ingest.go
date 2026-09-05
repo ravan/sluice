@@ -80,7 +80,7 @@ func buildIngestConfig(recv config.Receivers, f ingestFlags) (config.Config, err
 // clientConfigFrom maps the config's sink declaration plus the resolved token
 // to a varve.ClientConfig. Both front-ends build their client through it.
 func clientConfigFrom(sink config.VarveSink, token string) varve.ClientConfig {
-	return varve.ClientConfig{Addr: sink.Addr, Token: token, Graph: sink.Graph}
+	return varve.ClientConfig{TrustedWriters: sink.TrustedWriters, Addr: sink.Addr, Token: token, Graph: sink.Graph}
 }
 
 // runIngest performs the token-check → client → pipeline.Run → print-receipt flow

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,13 +60,16 @@ func StaticToken(token string) TokenProvider {
 
 // ClientConfig is the untyped edge; Addr is parsed exactly once, in NewClient.
 type ClientConfig struct {
-	Addr          string
-	Token         string        // convenience; wrapped by StaticToken when TokenProvider is nil
-	TokenProvider TokenProvider // wins over Token when both are set
-	Graph         string        // "" ⇒ no ?graph= parameter ⇒ Varve default graph
-	HTTP          *http.Client
-	MaxAttempts   int
-	OnRetry       func(attempt int, wait time.Duration)
+	Addr string
+	// TrustedWriters lists additional trusted HTTP origins (scheme, host, port).
+	// Addr is always trusted. Redirects never permit HTTPS to HTTP downgrades.
+	TrustedWriters []string
+	Token          string        // convenience; wrapped by StaticToken when TokenProvider is nil
+	TokenProvider  TokenProvider // wins over Token when both are set
+	Graph          string        // "" ⇒ no ?graph= parameter ⇒ Varve default graph
+	HTTP           *http.Client
+	MaxAttempts    int
+	OnRetry        func(attempt int, wait time.Duration)
 }
 
 // sleeper is the injected wait seam (real: sleepUntil; tests: a recording no-op).
@@ -75,6 +79,7 @@ type sleeper func(ctx context.Context, d time.Duration) error
 // (§3 boundary).
 type Client struct {
 	base        *url.URL
+	trusted     map[string]bool
 	token       TokenProvider
 	graph       string
 	http        *http.Client
@@ -85,8 +90,9 @@ type Client struct {
 }
 
 const (
-	retryBaseDelay = 250 * time.Millisecond
-	retryMaxDelay  = 30 * time.Second
+	maxResponseBytes = 1 << 20 // receipts and error responses are limited to 1 MiB
+	retryBaseDelay   = 250 * time.Millisecond
+	retryMaxDelay    = 30 * time.Second
 )
 
 // NewClient parses cfg. It errors when Addr is not an absolute http/https URL,
@@ -98,8 +104,16 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse addr %q: %w", cfg.Addr, err)
 	}
-	if !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return nil, fmt.Errorf("addr %q must be an absolute http/https URL", cfg.Addr)
+	}
+	trusted := map[string]bool{origin(u): true}
+	for _, addr := range cfg.TrustedWriters {
+		w, err := url.Parse(addr)
+		if err != nil || w.Host == "" || (w.Scheme != "http" && w.Scheme != "https") || w.User != nil || (w.Path != "" && w.Path != "/") || w.RawQuery != "" || w.Fragment != "" {
+			return nil, fmt.Errorf("trusted writer %q must be an HTTP origin", addr)
+		}
+		trusted[origin(w)] = true
 	}
 	token := cfg.TokenProvider
 	if token == nil {
@@ -115,12 +129,40 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Timeout: 2 * time.Minute}
 	}
+	// Copy the caller's client so installing policy cannot mutate shared state.
+	copyHTTP := *hc
+	previousRedirect := hc.CheckRedirect
+	copyHTTP.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if err := checkDestination(trusted, via[len(via)-1].URL, req.URL); err != nil {
+			return err
+		}
+		if previousRedirect != nil {
+			if err := previousRedirect(req, via); err != nil {
+				return err
+			}
+		}
+		// A caller hook may mutate the destination or method. Validate the final request.
+		if err := checkDestination(trusted, via[len(via)-1].URL, req.URL); err != nil {
+			return err
+		}
+		if req.Method != http.MethodPost {
+			return fmt.Errorf("%w: redirect changed POST method", errUnsafeRedirect)
+		}
+		// net/http strips credentials across hosts, including explicitly trusted writers.
+		req.Header.Set("Authorization", via[0].Header.Get("Authorization"))
+		return nil
+	}
+	hc = &copyHTTP
 	maxAttempts := cfg.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 4
 	}
 	return &Client{
 		base:        u,
+		trusted:     trusted,
 		token:       token,
 		graph:       cfg.Graph,
 		http:        hc,
@@ -129,6 +171,18 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		sleep:       sleepUntil,
 		now:         time.Now,
 	}, nil
+}
+
+// origin includes the port, so trust cannot silently expand to another service.
+func origin(u *url.URL) string { return strings.ToLower(u.Scheme + "://" + u.Host) }
+
+var errUnsafeRedirect = errors.New("untrusted or insecure writer redirect")
+
+func checkDestination(trusted map[string]bool, from, to *url.URL) error {
+	if to.User != nil || !trusted[origin(to)] || (from.Scheme == "https" && to.Scheme != "https") {
+		return errUnsafeRedirect
+	}
+	return nil
 }
 
 // verbatim exception — Retry-After has two exact wire forms; the parse IS the rule.
@@ -191,8 +245,8 @@ func (c *Client) ingestURL(base *url.URL) string {
 // Ingest POSTs s to <Addr>/v1/ingest[?graph=<Graph>] as application/x-ndjson
 // and returns the receipt. The bearer token is fetched from the TokenProvider
 // once per attempt. Transient failures (transport error, 408, 429, 503) are
-// retried with capped exponential backoff; a 421 is followed once to the
-// writer named in the error body. Any terminal non-2xx answer (including 404
+// retried with capped exponential backoff; a 421 can redirect to a trusted
+// writer named in the error body within the same attempt budget. Any terminal non-2xx answer (including 404
 // unknown_graph) is returned as *IngestError.
 func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 	var buf bytes.Buffer
@@ -216,7 +270,7 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 
 		resp, err := c.http.Do(req)
 		if err != nil {
-			if attempt < c.maxAttempts {
+			if attempt < c.maxAttempts && !errors.Is(err, errUnsafeRedirect) {
 				wait := backoff(attempt)
 				if c.onRetry != nil {
 					c.onRetry(attempt, wait)
@@ -229,8 +283,11 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 			return Receipt{}, fmt.Errorf("post /v1/ingest: %w", err)
 		}
 
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		closeErr := resp.Body.Close()
+		if len(body) > maxResponseBytes {
+			return Receipt{}, fmt.Errorf("response body exceeds %d bytes", maxResponseBytes)
+		}
 		if readErr != nil {
 			return Receipt{}, fmt.Errorf("read response body: %w", readErr)
 		}
@@ -263,7 +320,7 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 			}
 			retry = true
 		case http.StatusMisdirectedRequest:
-			if w, werr := url.Parse(eb.Writer); werr == nil && w.IsAbs() && (w.Scheme == "http" || w.Scheme == "https") && w.Host != "" && attempt < c.maxAttempts {
+			if w, werr := url.Parse(eb.Writer); werr == nil && w.IsAbs() && (w.Scheme == "http" || w.Scheme == "https") && w.Host != "" && checkDestination(c.trusted, resp.Request.URL, w) == nil && attempt < c.maxAttempts {
 				target = w
 				wait = backoff(attempt)
 				retry = true

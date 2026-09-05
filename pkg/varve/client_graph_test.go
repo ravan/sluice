@@ -168,7 +168,7 @@ func TestIngestGraphQuerySurvives421Redirect(t *testing.T) {
 	}))
 	defer srvA.Close()
 
-	c, err := NewClient(ClientConfig{Addr: srvA.URL, Token: "t", Graph: "org_a", MaxAttempts: 3})
+	c, err := NewClient(ClientConfig{Addr: srvA.URL, TrustedWriters: []string{srvB.URL}, Token: "t", Graph: "org_a", MaxAttempts: 3})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

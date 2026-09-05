@@ -156,7 +156,7 @@ func TestIngestFollows421ToWriter(t *testing.T) {
 	}))
 	defer srvA.Close()
 
-	c, err := NewClient(ClientConfig{Addr: srvA.URL, Token: "t0k", MaxAttempts: 3})
+	c, err := NewClient(ClientConfig{Addr: srvA.URL, TrustedWriters: []string{srvB.URL}, Token: "t0k", MaxAttempts: 3})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

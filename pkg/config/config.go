@@ -122,9 +122,10 @@ type Sink struct {
 // bearer token — so a secret never lands in the YAML or in argv — and the
 // named graph to ingest into ("" ⇒ the Varve default graph).
 type VarveSink struct {
-	Addr     string
-	TokenEnv string
-	Graph    string // wire: sink.varve.graph
+	TrustedWriters []string // wire: sink.varve.trusted_writers (HTTP origins)
+	Addr           string
+	TokenEnv       string
+	Graph          string // wire: sink.varve.graph
 }
 
 type wireConfig struct {
@@ -203,9 +204,10 @@ type wireSink struct {
 }
 
 type wireVarveSink struct {
-	Addr     string `yaml:"addr"`
-	TokenEnv string `yaml:"token_env"`
-	Graph    string `yaml:"graph"`
+	TrustedWriters []string `yaml:"trusted_writers"`
+	Addr           string   `yaml:"addr"`
+	TokenEnv       string   `yaml:"token_env"`
+	Graph          string   `yaml:"graph"`
 }
 
 // Load parses and validates a pipeline.yaml. Each stanza is validated by its
@@ -433,7 +435,7 @@ func sinkFrom(w wireSink) (Sink, error) {
 		return Sink{}, fmt.Errorf("config: sink.varve.graph %q: names starting with %q are reserved",
 			w.Varve.Graph, reservedGraphPrefix)
 	}
-	return Sink{Varve: VarveSink{Addr: w.Varve.Addr, TokenEnv: w.Varve.TokenEnv, Graph: w.Varve.Graph}}, nil
+	return Sink{Varve: VarveSink{TrustedWriters: w.Varve.TrustedWriters, Addr: w.Varve.Addr, TokenEnv: w.Varve.TokenEnv, Graph: w.Varve.Graph}}, nil
 }
 
 // LoadFile opens path then calls Load.

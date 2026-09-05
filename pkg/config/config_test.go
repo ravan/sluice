@@ -493,3 +493,22 @@ func TestLoadEnrichVulnerableCode(t *testing.T) {
 		})
 	}
 }
+
+func TestTrustedWriterOriginsReachSink(t *testing.T) {
+	cfg, err := Load(strings.NewReader(`
+receivers:
+  files:
+    path: testdata
+sink:
+  varve:
+    addr: https://reader.example
+    token_env: VARVE_TOKEN
+    trusted_writers: [https://writer.example:8443]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Sink.Varve.TrustedWriters) != 1 || cfg.Sink.Varve.TrustedWriters[0] != "https://writer.example:8443" {
+		t.Fatalf("trusted writers lost: %+v", cfg.Sink.Varve)
+	}
+}

@@ -119,7 +119,7 @@ func runCmd() *cobra.Command {
 					logger.Debug("healthz write", "error", err)
 				}
 			})
-			srv := &http.Server{Handler: mux}
+			srv := newMetricsServer(mux)
 			go func() {
 				if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					logger.Error("metrics server", "error", err)
@@ -145,7 +145,14 @@ func runCmd() *cobra.Command {
 				Logger:    logger,
 				Enrichers: []enrich.Enricher{euvdEnricher},
 			})
-			logger.Info("drained",
+			logResult := logger.Info
+			message := "drained"
+			if runErr != nil {
+				logResult = logger.Error
+				message = "pipeline failed"
+			}
+			logResult(message,
+				"error", runErr,
 				"documents", rec.Documents,
 				"skipped", len(rec.Skipped),
 				"fallbacks", rec.Fallbacks)
@@ -159,9 +166,15 @@ func runCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to pipeline.yaml (required)")
-	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", ":9464", "address for the /metrics and /healthz HTTP server")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "127.0.0.1:9464", "address for the /metrics and /healthz HTTP server")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug|info|warn|error")
 	cmd.Flags().StringVar(&logFormat, "log-format", "json", "log format: json|text")
 	cobra.CheckErr(cmd.MarkFlagRequired("config"))
 	return cmd
+}
+
+// Metrics requests must finish promptly, including clients sending partial headers.
+func newMetricsServer(handler http.Handler) *http.Server {
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 }

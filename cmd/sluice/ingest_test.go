@@ -126,8 +126,8 @@ func TestIngestVarveGraphFlag(t *testing.T) {
 }
 
 func TestClientConfigFromSink(t *testing.T) {
-	cc := clientConfigFrom(config.VarveSink{Addr: "http://v", TokenEnv: "VARVE_TOKEN", Graph: "org_a"}, "tok")
-	if cc.Addr != "http://v" || cc.Graph != "org_a" || cc.Token != "tok" {
+	cc := clientConfigFrom(config.VarveSink{Addr: "http://v", TokenEnv: "VARVE_TOKEN", Graph: "org_a", TrustedWriters: []string{"https://writer.example"}}, "tok")
+	if cc.Addr != "http://v" || cc.Graph != "org_a" || cc.Token != "tok" || len(cc.TrustedWriters) != 1 || cc.TrustedWriters[0] != "https://writer.example" {
 		t.Errorf("clientConfigFrom = %+v, want Addr http://v Graph org_a Token tok", cc)
 	}
 }
