@@ -20,7 +20,7 @@ func TestMapIsDependency(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	objID := varve.NodeID("pkg:v:npm//left-pad/1.3.0++")
 	evID := EvidenceID("IsDependency", string(subjID), string(objID), "DIRECT", "dep", "", "", "")
 
@@ -69,7 +69,7 @@ func TestMapIsOccurrencePackageSubject(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	artID := varve.NodeID("art:sha256:abc")
 	evID := EvidenceID("IsOccurrence", string(subjID), string(artID), "occ", "", "", "")
 
@@ -133,7 +133,7 @@ func TestMapHasSBOM(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	evID := EvidenceID("HasSBOM", string(subjID), "http://sbom", "sha256", "xyz", "http://dl",
 		"2020-11-24T01:12:27Z", "", "", "")
 

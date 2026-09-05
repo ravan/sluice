@@ -136,7 +136,7 @@ func subjectOf(s varve.Stream, purl string) varve.NodeID {
 			if p.Key != assemble.PropPurl {
 				continue
 			}
-			if v, ok := p.Value.(varve.Str); ok && string(v) == purl {
+			if v, ok := p.Value.AsString(); ok && string(v) == purl {
 				return n.ID
 			}
 		}

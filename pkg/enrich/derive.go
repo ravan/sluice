@@ -32,7 +32,7 @@ var scanners = map[scannerKey]scanner{
 
 func vulnFacts(props []varve.Prop) ([]FactValue, []varve.NodeID) {
 	object, ok := propStr(props, assemble.PropObjectID)
-	if !ok || object == "" {
+	if !ok || object == "" || object == string(assemble.VulnID("novuln", "")) {
 		return nil, nil
 	}
 	return []FactValue{{FactAffected, object}}, []varve.NodeID{varve.NodeID(object)}

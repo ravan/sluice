@@ -63,7 +63,7 @@ func TestMapPkgEqual(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	members := sortedIDs([]varve.NodeID{"pkg:v:golang/github.com/x/y/v1.0.0++", "pkg:v:golang/github.com/x/y/v2.0.0++"})
+	members := sortedIDs([]varve.NodeID{"pkg:v:golang/github.com%2Fx/y/v1.0.0++", "pkg:v:golang/github.com%2Fx/y/v2.0.0++"})
 	joined := joinIDs(members)
 	evID := EvidenceID("PkgEqual", joined, "alias", "", "", "")
 

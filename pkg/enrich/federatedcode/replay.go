@@ -248,7 +248,7 @@ func (r *Repo) advisoryClaims(commits []*object.Commit, vcid string, req Request
 // readYAML parses the blob at path in c. A path absent at a commit is the
 // normal case for a repository's early history, not an error: parse returns
 // its zero value.
-func readYAML[T any](c *object.Commit, path string, parse func([]byte) (T, error)) (T, error) {
+func readYAML[T Advisory | []PackageEntry](c *object.Commit, path string, parse func([]byte) (T, error)) (T, error) {
 	var zero T
 	f, err := c.File(path)
 	if err != nil {

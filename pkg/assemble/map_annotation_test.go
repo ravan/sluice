@@ -47,7 +47,7 @@ func TestMapCertifyGoodPackageSubject(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	evID := EvidenceID("CertifyGood", string(subjID), fixedTimeStr, "trusted", "", "", "")
 
 	n, ok := findNode(got, evID)
@@ -104,7 +104,7 @@ func TestMapPointOfContactPackageAllVersions(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:n:golang/github.com/x/y")
+	subjID := varve.NodeID("pkg:n:golang/github.com%2Fx/y")
 	evID := EvidenceID("PointOfContact", string(subjID), "a@b", "maintainer", fixedTimeStr, "owner", "", "", "")
 
 	n, ok := findNode(got, evID)

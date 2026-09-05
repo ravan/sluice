@@ -23,7 +23,7 @@ func TestMapHasSourceAt(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	nameID := varve.NodeID("pkg:n:golang/github.com/x/y")
+	nameID := varve.NodeID("pkg:n:golang/github.com%2Fx/y")
 	srcID := varve.NodeID("src:n:git/github.com/x/y@v1@abc")
 	evID := EvidenceID("HasSourceAt", string(nameID), string(srcID),
 		"2022-01-02T03:04:05Z", "found", "", "", "")
@@ -68,7 +68,7 @@ func TestMapHasSlsa(t *testing.T) {
 	bldID := varve.NodeID("bld:https://ci")
 	matID := varve.NodeID("art:sha256:mat1")
 	materials := joinIDs([]varve.NodeID{matID})
-	predicates := "k\x1fv"
+	predicates := "1:k1:v"
 	evID := EvidenceID("HasSlsa", string(subjID), string(bldID), materials,
 		"github", "v1", "", "", "", "", "", predicates)
 
@@ -114,7 +114,7 @@ func TestMapCertifyScorecard(t *testing.T) {
 	got := streamAt(t, preds)
 
 	srcID := varve.NodeID("src:n:git/github.com/x/y@@")
-	checks := "Binary-Artifacts\x1f10"
+	checks := "16:Binary-Artifacts2:10"
 	evID := EvidenceID("CertifyScorecard", string(srcID), "v4", "abc", fixedTimeStr, "8.5", "", "", "", checks)
 
 	n, ok := findNode(got, evID)

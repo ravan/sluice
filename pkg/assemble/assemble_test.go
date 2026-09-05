@@ -64,7 +64,7 @@ func TestAssemblePackages(t *testing.T) {
 
 	want := varve.Stream{
 		Nodes: []varve.NodeRecord{
-			{ID: "pkg:n:golang/github.com/x/y", Labels: []varve.NodeLabel{"PkgName"}, ValidFrom: testNow, Props: []varve.Prop{
+			{ID: "pkg:n:golang/github.com%2Fx/y", Labels: []varve.NodeLabel{"PkgName"}, ValidFrom: testNow, Props: []varve.Prop{
 				{Key: "type", Value: varve.Str("golang")},
 				{Key: "namespace", Value: varve.Str("github.com/x")},
 				{Key: "name", Value: varve.Str("y")},
@@ -73,14 +73,14 @@ func TestAssemblePackages(t *testing.T) {
 				{Key: "type", Value: varve.Str("npm")},
 				{Key: "name", Value: varve.Str("left-pad")},
 			}},
-			{ID: "pkg:v:golang/github.com/x/y/v1.0.0++", Labels: []varve.NodeLabel{"PkgVersion"}, ValidFrom: testNow, Props: []varve.Prop{
+			{ID: "pkg:v:golang/github.com%2Fx/y/v1.0.0++", Labels: []varve.NodeLabel{"PkgVersion"}, ValidFrom: testNow, Props: []varve.Prop{
 				{Key: "type", Value: varve.Str("golang")},
 				{Key: "namespace", Value: varve.Str("github.com/x")},
 				{Key: "name", Value: varve.Str("y")},
 				{Key: "version", Value: varve.Str("v1.0.0")},
 				{Key: "purl", Value: varve.Str("pkg:golang/github.com/x/y@v1.0.0")},
 			}},
-			{ID: "pkg:v:golang/github.com/x/y/v2.0.0++", Labels: []varve.NodeLabel{"PkgVersion"}, ValidFrom: testNow, Props: []varve.Prop{
+			{ID: "pkg:v:golang/github.com%2Fx/y/v2.0.0++", Labels: []varve.NodeLabel{"PkgVersion"}, ValidFrom: testNow, Props: []varve.Prop{
 				{Key: "type", Value: varve.Str("golang")},
 				{Key: "namespace", Value: varve.Str("github.com/x")},
 				{Key: "name", Value: varve.Str("y")},
@@ -95,8 +95,8 @@ func TestAssemblePackages(t *testing.T) {
 			}},
 		},
 		Edges: []varve.EdgeRecord{
-			{ID: "pkg:n:golang/github.com/x/y|PkgHasVersion|pkg:v:golang/github.com/x/y/v1.0.0++", Label: "PkgHasVersion", Src: "pkg:n:golang/github.com/x/y", Dst: "pkg:v:golang/github.com/x/y/v1.0.0++", ValidFrom: testNow},
-			{ID: "pkg:n:golang/github.com/x/y|PkgHasVersion|pkg:v:golang/github.com/x/y/v2.0.0++", Label: "PkgHasVersion", Src: "pkg:n:golang/github.com/x/y", Dst: "pkg:v:golang/github.com/x/y/v2.0.0++", ValidFrom: testNow},
+			{ID: "pkg:n:golang/github.com%252Fx/y|PkgHasVersion|pkg:v:golang/github.com%252Fx/y/v1.0.0++", Label: "PkgHasVersion", Src: "pkg:n:golang/github.com%2Fx/y", Dst: "pkg:v:golang/github.com%2Fx/y/v1.0.0++", ValidFrom: testNow},
+			{ID: "pkg:n:golang/github.com%252Fx/y|PkgHasVersion|pkg:v:golang/github.com%252Fx/y/v2.0.0++", Label: "PkgHasVersion", Src: "pkg:n:golang/github.com%2Fx/y", Dst: "pkg:v:golang/github.com%2Fx/y/v2.0.0++", ValidFrom: testNow},
 			{ID: "pkg:n:npm//left-pad|PkgHasVersion|pkg:v:npm//left-pad/1.3.0++", Label: "PkgHasVersion", Src: "pkg:n:npm//left-pad", Dst: "pkg:v:npm//left-pad/1.3.0++", ValidFrom: testNow},
 		},
 	}
@@ -118,10 +118,10 @@ func TestAssemblePackagesDeduplicates(t *testing.T) {
 		}
 		return n
 	}
-	if c := countNode("pkg:v:golang/github.com/x/y/v1.0.0++"); c != 1 {
+	if c := countNode("pkg:v:golang/github.com%2Fx/y/v1.0.0++"); c != 1 {
 		t.Errorf("PkgVersion v1.0.0 appears %d times, want 1", c)
 	}
-	if c := countNode("pkg:n:golang/github.com/x/y"); c != 1 {
+	if c := countNode("pkg:n:golang/github.com%2Fx/y"); c != 1 {
 		t.Errorf("PkgName golang/github.com/x/y appears %d times, want 1", c)
 	}
 }
@@ -153,7 +153,7 @@ func TestAssemblePackagesQualifiersAndSubpath(t *testing.T) {
 
 	got := streamAt(t, preds)
 
-	const wantID = varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0+arch=amd64&os=linux+cmd/x")
+	const wantID = varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0+arch=amd64&os=linux+cmd%2Fx")
 	n, ok := findNode(got, wantID)
 	if !ok {
 		t.Fatalf("no PkgVersion node with id %q; got %s", wantID, ndjson(t, got))
@@ -322,7 +322,7 @@ func TestValidFromInBounds(t *testing.T) {
 		t.Errorf("Fallbacks = %d, want 0", res.Fallbacks)
 	}
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	vulnID := varve.NodeID("vuln:osv/cve-2021-44228")
 	evID := EvidenceID("CertifyVuln", string(subjID), string(vulnID),
 		"2021-12-10T10:15:00Z", "", "", "", "", "", "", "")
@@ -358,7 +358,7 @@ func TestValidFromFallbackBeforeFloor(t *testing.T) {
 		t.Errorf("Fallbacks = %d, want 1", res.Fallbacks)
 	}
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	vulnID := varve.NodeID("vuln:osv/cve-2021-44228")
 	evID := EvidenceID("CertifyVuln", string(subjID), string(vulnID),
 		"1970-01-01T00:00:00Z", "", "", "", "", "", "", "")
@@ -390,7 +390,7 @@ func TestValidFromFutureSkew(t *testing.T) {
 		t.Errorf("Fallbacks = %d, want 1", res.Fallbacks)
 	}
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	vulnID := varve.NodeID("vuln:osv/cve-2021-44228")
 	evID := EvidenceID("CertifyVuln", string(subjID), string(vulnID),
 		"2026-08-07T00:10:00Z", "", "", "", "", "", "", "")
@@ -418,7 +418,7 @@ func TestValidFromAbsentKind(t *testing.T) {
 		t.Errorf("Fallbacks = %d, want 1", res.Fallbacks)
 	}
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	objID := varve.NodeID("pkg:v:npm//left-pad/1.3.0++")
 	evID := EvidenceID("IsDependency", string(subjID), string(objID), "DIRECT", "dep", "", "", "")
 
@@ -453,8 +453,8 @@ func TestIdentityNodeEarliest(t *testing.T) {
 		t.Errorf("Fallbacks = %d, want 0", res.Fallbacks)
 	}
 
-	versionID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
-	nameID := varve.NodeID("pkg:n:golang/github.com/x/y")
+	versionID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
+	nameID := varve.NodeID("pkg:n:golang/github.com%2Fx/y")
 	for _, id := range []varve.NodeID{versionID, nameID} {
 		n, _ := findNode(res.Stream, id)
 		if !n.ValidFrom.Equal(sbomTime) {
@@ -522,5 +522,34 @@ func TestResultDocumentValidFrom(t *testing.T) {
 	res3 := b3.result()
 	if !res3.ValidFrom.Equal(testNow) || !res3.Fallback {
 		t.Errorf("no-assertion result = {ValidFrom %v, Fallback %v}, want {%v, true}", res3.ValidFrom, res3.Fallback, testNow)
+	}
+}
+
+func TestDistinctQualifiersKeepSeparateEvidence(t *testing.T) {
+	a := &generated.PkgInputSpec{Type: "generic", Name: "example", Version: ptr("1"), Qualifiers: []generated.PackageQualifierInputSpec{{Key: "arch", Value: "x&distro=y"}}}
+	b := &generated.PkgInputSpec{Type: "generic", Name: "example", Version: ptr("1"), Qualifiers: []generated.PackageQualifierInputSpec{{Key: "arch", Value: "x"}, {Key: "distro", Value: "y"}}}
+	s := streamAt(t, []assembler.IngestPredicates{{CertifyVuln: []assembler.CertifyVulnIngest{
+		{Pkg: a, Vulnerability: &generated.VulnerabilityInputSpec{Type: "cve", VulnerabilityID: "cve-2024-1"}, VulnData: &generated.ScanMetadataInput{ScannerUri: "osv.dev"}},
+		{Pkg: b, Vulnerability: &generated.VulnerabilityInputSpec{Type: "cve", VulnerabilityID: "cve-2024-1"}, VulnData: &generated.ScanMetadataInput{ScannerUri: "osv.dev"}},
+	}}})
+	if countLabel(s, LabelPkgVersion) != 2 || countLabel(s, LabelCertifyVuln) != 2 {
+		t.Fatalf("distinct packages or evidence merged:\n%s", ndjson(t, s))
+	}
+	purls := make(map[string]bool)
+	for _, n := range s.Nodes {
+		for _, p := range n.Props {
+			if p.Key == PropPurl {
+				v, ok := p.Value.AsString()
+				if !ok {
+					t.Fatal("purl is not string")
+				}
+				purls[v] = true
+			}
+		}
+	}
+	for _, purl := range []string{"pkg:generic/example@1?arch=x%26distro%3Dy", "pkg:generic/example@1?arch=x&distro=y"} {
+		if !purls[purl] {
+			t.Errorf("missing purl %q: %#v", purl, purls)
+		}
 	}
 }

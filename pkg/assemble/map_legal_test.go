@@ -25,7 +25,7 @@ func TestMapCertifyLegal(t *testing.T) {
 	}}
 	got := streamAt(t, preds)
 
-	subjID := varve.NodeID("pkg:v:golang/github.com/x/y/v1.0.0++")
+	subjID := varve.NodeID("pkg:v:golang/github.com%2Fx/y/v1.0.0++")
 	declared := joinIDs([]varve.NodeID{"lic:MIT"})
 	discovered := joinIDs([]varve.NodeID{"lic:Apache-2.0"})
 	evID := EvidenceID("CertifyLegal", string(subjID), "MIT", "Apache-2.0", "", "scan", fixedTimeStr,

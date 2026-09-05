@@ -21,7 +21,7 @@ func TestPkgNameID(t *testing.T) {
 			typ:       "golang",
 			namespace: "github.com/x",
 			pkgName:   "y",
-			want:      "pkg:n:golang/github.com/x/y",
+			want:      "pkg:n:golang/github.com%2Fx/y",
 		},
 		{
 			name:      "empty namespace",
@@ -59,7 +59,7 @@ func TestPkgVersionID(t *testing.T) {
 			version:         "v1.0.0",
 			canonQualifiers: "arch=amd64&os=linux",
 			subpath:         "sub",
-			want:            "pkg:v:golang/github.com/x/y/v1.0.0+arch=amd64&os=linux+sub",
+			want:            "pkg:v:golang/github.com%2Fx/y/v1.0.0+arch=amd64&os=linux+sub",
 		},
 		{
 			name:            "minimal",
@@ -258,5 +258,32 @@ func TestEdgeLabelVocabulary(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPackageIdentityBoundaries(t *testing.T) {
+	a := CanonQualifiers([]generated.PackageQualifierInputSpec{{Key: "arch", Value: "x&distro=y"}})
+	b := CanonQualifiers([]generated.PackageQualifierInputSpec{{Key: "arch", Value: "x"}, {Key: "distro", Value: "y"}})
+	if a == b || PkgVersionID("generic", "", "example", "1", a, "") == PkgVersionID("generic", "", "example", "1", b, "") {
+		t.Fatal("qualifier boundary collision")
+	}
+	for _, fields := range [][2][6]string{
+		{{"generic", "a/b", "c", "1", "", ""}, {"generic", "a", "b/c", "1", "", ""}},
+		{{"generic", "", "a", "1+x", "y", ""}, {"generic", "", "a", "1", "x+y", ""}},
+		{{"generic", "", "a/b", "1", "", ""}, {"generic", "", "a%2Fb", "1", "", ""}},
+	} {
+		x, y := fields[0], fields[1]
+		if PkgVersionID(x[0], x[1], x[2], x[3], x[4], x[5]) == PkgVersionID(y[0], y[1], y[2], y[3], y[4], y[5]) {
+			t.Fatalf("package collision: %q / %q", x, y)
+		}
+	}
+	if PkgNameID("generic", "a/b", "c") == PkgNameID("generic", "a", "b/c") {
+		t.Fatal("name collision")
+	}
+	if EdgeIDFor("a|b", "c", "d") == EdgeIDFor("a", "b", "c|d") {
+		t.Fatal("edge collision")
+	}
+	if EdgeIDFor("a|b", "c", "d") == EdgeIDFor("a%7Cb", "c", "d") {
+		t.Fatal("edge percent collision")
 	}
 }

@@ -23,7 +23,7 @@ func TestEncodeKV(t *testing.T) {
 		t.Errorf("encodeKV(nil) = %q, want %q", got, "")
 	}
 	got := encodeKV([]KVPair{{"BinaryArtifacts", "10"}, {"CI-Tests", "9"}})
-	want := "BinaryArtifacts\x1f10\nCI-Tests\x1f9"
+	want := "15:BinaryArtifacts2:108:CI-Tests1:9"
 	if got != want {
 		t.Errorf("encodeKV = %q, want %q", got, want)
 	}
@@ -33,8 +33,8 @@ func TestJoinIDs(t *testing.T) {
 	if got := joinIDs(nil); got != "" {
 		t.Errorf("joinIDs(nil) = %q, want %q", got, "")
 	}
-	if got := joinIDs([]varve.NodeID{"a", "b"}); got != "a\nb" {
-		t.Errorf("joinIDs = %q, want %q", got, "a\nb")
+	if got := joinIDs([]varve.NodeID{"a", "b"}); got != "1:a1:b" {
+		t.Errorf("joinIDs = %q, want %q", got, "1:a1:b")
 	}
 }
 
@@ -58,7 +58,29 @@ func TestEncodeKVIsOrderIndependent(t *testing.T) {
 	if a != b {
 		t.Fatalf("encodeKV depends on input order:\n%q\n%q", a, b)
 	}
-	if a != "a\x1f1\nb\x1f2\nc\x1f3" {
+	if a != "1:a1:11:b1:21:c1:3" {
 		t.Fatalf("unexpected canonical form %q", a)
+	}
+}
+
+func TestEvidenceFieldBoundaries(t *testing.T) {
+	for _, fields := range [][2][]string{
+		{{"a\x1fb", "c"}, {"a", "b\x1fc"}},
+		{{""}, {}},
+		{{"a", ""}, {"a"}},
+		{{"1:a", "b"}, {"1", ":ab"}},
+	} {
+		if EvidenceID("HasMetadata", fields[0]...) == EvidenceID("HasMetadata", fields[1]...) {
+			t.Fatalf("collision: %q / %q", fields[0], fields[1])
+		}
+	}
+	if encodeKV([]KVPair{{"a\x1fb", "c"}}) == encodeKV([]KVPair{{"a", "b\x1fc"}}) {
+		t.Fatal("KV field collision")
+	}
+	if encodeKV([]KVPair{{"a", "b\nc\x1fd"}}) == encodeKV([]KVPair{{"a", "b"}, {"c", "d"}}) {
+		t.Fatal("KV pair collision")
+	}
+	if joinIDs([]varve.NodeID{"a\nb", "c"}) == joinIDs([]varve.NodeID{"a", "b\nc"}) {
+		t.Fatal("ID list collision")
 	}
 }

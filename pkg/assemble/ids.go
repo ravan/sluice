@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"net/url"
 	"sort"
 	"strings"
 
@@ -18,14 +19,14 @@ const (
 	EdgePkgHasVersion varve.EdgeLabel = "PkgHasVersion"
 )
 
-// PkgVersionID derives "pkg:v:<type>/<ns>/<name>/<version>+<canonQuals>+<subpath>".
+// PkgVersionID joins escaped components as "pkg:v:<type>/<ns>/<name>/<version>+<canonQuals>+<subpath>".
 func PkgVersionID(typ, namespace, name, version, canonQualifiers, subpath string) varve.NodeID {
-	return varve.NodeID("pkg:v:" + typ + "/" + namespace + "/" + name + "/" + version + "+" + canonQualifiers + "+" + subpath)
+	return varve.NodeID("pkg:v:" + identityPart(typ) + "/" + identityPart(namespace) + "/" + identityPart(name) + "/" + identityPart(version) + "+" + identityPart(canonQualifiers) + "+" + identityPart(subpath))
 }
 
-// PkgNameID derives "pkg:n:<type>/<ns>/<name>".
+// PkgNameID joins escaped components as "pkg:n:<type>/<ns>/<name>".
 func PkgNameID(typ, namespace, name string) varve.NodeID {
-	return varve.NodeID("pkg:n:" + typ + "/" + namespace + "/" + name)
+	return varve.NodeID("pkg:n:" + identityPart(typ) + "/" + identityPart(namespace) + "/" + identityPart(name))
 }
 
 // CanonQualifiers renders qualifiers as a sorted, order-independent "k=v&…"
@@ -34,17 +35,22 @@ func PkgNameID(typ, namespace, name string) varve.NodeID {
 func CanonQualifiers(quals []generated.PackageQualifierInputSpec) string {
 	sorted := make([]generated.PackageQualifierInputSpec, len(quals))
 	copy(sorted, quals)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Key == sorted[j].Key {
+			return sorted[i].Value < sorted[j].Value
+		}
+		return sorted[i].Key < sorted[j].Key
+	})
 	parts := make([]string, 0, len(sorted))
 	for _, q := range sorted {
-		parts = append(parts, q.Key+"="+q.Value)
+		parts = append(parts, url.QueryEscape(q.Key)+"="+url.QueryEscape(q.Value))
 	}
 	return strings.Join(parts, "&")
 }
 
-// EdgeIDFor derives "<src>|<label>|<dst>" (§2.3), so edge replay is idempotent.
+// EdgeIDFor joins percent-escaped fields as "<src>|<label>|<dst>".
 func EdgeIDFor(src varve.NodeID, label varve.EdgeLabel, dst varve.NodeID) varve.EdgeID {
-	return varve.EdgeID(string(src) + "|" + string(label) + "|" + string(dst))
+	return varve.EdgeID(edgePart(string(src)) + "|" + edgePart(string(label)) + "|" + edgePart(string(dst)))
 }
 
 // Identity-node labels (flattened two-level model; no PkgType/PkgNamespace/
@@ -158,9 +164,18 @@ func LicenseID(name string, inline *string) varve.NodeID {
 	return varve.NodeID("lic:" + name)
 }
 
-// EvidenceID derives "<kind>:<sha256hex>" of the '\x1f'-joined parts, where
-// kind is the evidence node's own label. The separator makes the join
-// injective.
+// EvidenceID hashes length-prefixed fields, preserving every field boundary.
 func EvidenceID(kind varve.NodeLabel, parts ...string) varve.NodeID {
 	return varve.NodeID(string(kind) + ":" + hashParts(parts...))
+}
+
+// identityPart escapes delimiters and percent signs before composing an ID.
+// Qualifier separators remain readable; their keys and values are escaped by
+// CanonQualifiers before the whole qualifier field is escaped here.
+func identityPart(s string) string {
+	return strings.NewReplacer("%", "%25", "/", "%2F", "+", "%2B", "|", "%7C", "\n", "%0A", "\r", "%0D").Replace(s)
+}
+
+func edgePart(s string) string {
+	return strings.NewReplacer("%", "%25", "|", "%7C").Replace(s)
 }

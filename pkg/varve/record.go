@@ -19,20 +19,52 @@ type EdgeID string
 type NodeLabel string
 type EdgeLabel string
 
-// Value is the closed set of scalar property values POST /v1/ingest accepts.
-// Sealed by an unexported method: nested values and null are 422s on the wire,
-// so they are unrepresentable here (§6 inv. 3).
-type Value interface{ isValue() }
+// Value holds one scalar property. Construct values with Str, Int, Float, or
+// Bool. Its zero value is invalid and marshaling it returns an error.
+type Value struct {
+	kind    valueKind
+	text    string
+	integer int64
+	number  float64
+	boolean bool
+}
 
-type Str string
-type Int int64
-type Float float64
-type Bool bool
+type valueKind uint8
 
-func (Str) isValue()   {}
-func (Int) isValue()   {}
-func (Float) isValue() {}
-func (Bool) isValue()  {}
+const (
+	invalidValue valueKind = iota
+	stringValue
+	intValue
+	floatValue
+	boolValue
+)
+
+func Str(v string) Value    { return Value{kind: stringValue, text: v} }
+func String(v string) Value { return Str(v) }
+func Int(v int64) Value     { return Value{kind: intValue, integer: v} }
+func Float(v float64) Value { return Value{kind: floatValue, number: v} }
+func Bool(v bool) Value     { return Value{kind: boolValue, boolean: v} }
+
+func (v Value) AsString() (string, bool) { return v.text, v.kind == stringValue }
+func (v Value) AsInt() (int64, bool)     { return v.integer, v.kind == intValue }
+func (v Value) AsFloat() (float64, bool) { return v.number, v.kind == floatValue }
+func (v Value) AsBool() (bool, bool)     { return v.boolean, v.kind == boolValue }
+
+// MarshalJSON validates the scalar, including rejection of non-finite floats.
+func (v Value) MarshalJSON() ([]byte, error) {
+	switch v.kind {
+	case stringValue:
+		return json.Marshal(v.text)
+	case intValue:
+		return json.Marshal(v.integer)
+	case floatValue:
+		return json.Marshal(v.number)
+	case boolValue:
+		return json.Marshal(v.boolean)
+	default:
+		return nil, fmt.Errorf("uninitialized scalar Value")
+	}
+}
 
 // Prop is one property. Props are emitted in slice order, so record bytes are
 // deterministic and golden-testable.

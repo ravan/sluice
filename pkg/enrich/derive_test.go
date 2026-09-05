@@ -198,3 +198,18 @@ func assertClaims(t *testing.T, got, want []Claim) {
 		}
 	}
 }
+
+func TestCleanOSVScanHasNoAffectedClaim(t *testing.T) {
+	n := varve.NodeRecord{ID: "scan", Labels: []varve.NodeLabel{assemble.LabelCertifyVuln}, Props: []varve.Prop{
+		{Key: assemble.PropSubjectID, Value: varve.Str("pkg:v:a")},
+		{Key: assemble.PropCollector, Value: varve.Str("osv_certifier")},
+		{Key: assemble.PropObjectID, Value: varve.Str(string(assemble.VulnID("NoVuln", "ignored")))},
+	}}
+	if got := Derive(varve.Stream{Nodes: []varve.NodeRecord{n}}); len(got) != 0 {
+		t.Fatalf("clean scan produced claims: %#v", got)
+	}
+	n.Props[2].Value = varve.Str("vuln:osv/cve-2024-1234")
+	if got := Derive(varve.Stream{Nodes: []varve.NodeRecord{n}}); len(got) != 1 || got[0].Fact != FactAffected {
+		t.Fatalf("real finding lost: %#v", got)
+	}
+}

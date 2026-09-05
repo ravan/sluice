@@ -109,7 +109,7 @@ func propMap(t *testing.T, props []varve.Prop) map[string]string {
 	t.Helper()
 	m := make(map[string]string, len(props))
 	for _, p := range props {
-		s, ok := p.Value.(varve.Str)
+		s, ok := p.Value.AsString()
 		if !ok {
 			t.Fatalf("prop %q value = %#v, want a varve.Str", p.Key, p.Value)
 		}

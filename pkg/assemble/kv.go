@@ -4,42 +4,58 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ravan/sluice/pkg/varve"
 )
 
-// hashParts returns the sha256 hex of parts joined by the unit separator
-// '\x1f'. Deterministic and injective across joins.
+// frameParts length-prefixes each field in bytes. Empty fields retain their
+// positions, and embedded separators cannot change field boundaries.
+func frameParts(parts ...string) string {
+	var b strings.Builder
+	for _, part := range parts {
+		b.WriteString(strconv.Itoa(len(part)))
+		b.WriteByte(':')
+		b.WriteString(part)
+	}
+	return b.String()
+}
+
+// hashParts hashes the unambiguous field encoding.
 func hashParts(parts ...string) string {
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	sum := sha256.Sum256([]byte(frameParts(parts...)))
 	return hex.EncodeToString(sum[:])
 }
 
 // KVPair packs one small ordered (key,value) for encodeKV.
 type KVPair struct{ Key, Value string }
 
-// encodeKV packs pairs as "k\x1fv" joined by '\n', sorted by key then
-// value. GUAC hands SLSA predicates and Scorecard checks over in map order,
-// so the input order is not stable; the id derived from this string must
-// be. Empty slice → "".
+// encodeKV sorts pairs by key then value and length-prefixes every field.
+// An empty slice produces an empty string.
 func encodeKV(pairs []KVPair) string {
-	parts := make([]string, 0, len(pairs))
-	for _, p := range pairs {
-		parts = append(parts, p.Key+"\x1f"+p.Value)
+	sorted := append([]KVPair(nil), pairs...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Key == sorted[j].Key {
+			return sorted[i].Value < sorted[j].Value
+		}
+		return sorted[i].Key < sorted[j].Key
+	})
+	parts := make([]string, 0, 2*len(sorted))
+	for _, p := range sorted {
+		parts = append(parts, p.Key, p.Value)
 	}
-	sort.Strings(parts)
-	return strings.Join(parts, "\n")
+	return frameParts(parts...)
 }
 
-// joinIDs packs an id list into one newline-delimited scalar property. Empty
-// slice → "".
+// joinIDs length-prefixes an ID list into one scalar property. Empty slices
+// produce an empty string.
 func joinIDs(ids []varve.NodeID) string {
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {
 		parts = append(parts, string(id))
 	}
-	return strings.Join(parts, "\n")
+	return frameParts(parts...)
 }
 
 // sortedIDs returns a lexicographically sorted copy (never mutates input).

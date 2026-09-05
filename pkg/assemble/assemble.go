@@ -65,7 +65,7 @@ func (b *builder) beginAssertion(t *time.Time) {
 func (b *builder) addNode(id varve.NodeID, label varve.NodeLabel, props []varve.Prop) {
 	kept := make([]varve.Prop, 0, len(props))
 	for _, p := range props {
-		if s, ok := p.Value.(varve.Str); ok && s == "" {
+		if s, ok := p.Value.AsString(); ok && s == "" {
 			continue
 		}
 		kept = append(kept, p)

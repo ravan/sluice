@@ -289,13 +289,14 @@ func propStr(props []varve.Prop, key string) (string, bool) {
 		if p.Key != key {
 			continue
 		}
-		switch v := p.Value.(type) {
-		case varve.Str:
-			return string(v), true
-		case varve.Float:
-			return strconv.FormatFloat(float64(v), 'f', -1, 64), true
-		case varve.Int:
-			return strconv.FormatInt(int64(v), 10), true
+		if v, ok := p.Value.AsString(); ok {
+			return v, true
+		}
+		if v, ok := p.Value.AsFloat(); ok {
+			return strconv.FormatFloat(v, 'f', -1, 64), true
+		}
+		if v, ok := p.Value.AsInt(); ok {
+			return strconv.FormatInt(v, 10), true
 		}
 		return "", false
 	}

@@ -151,7 +151,7 @@ func (c StampedClaim) Records() varve.Stream {
 func keepSet(props []varve.Prop) []varve.Prop {
 	kept := make([]varve.Prop, 0, len(props))
 	for _, p := range props {
-		if s, ok := p.Value.(varve.Str); ok && s == "" {
+		if s, ok := p.Value.AsString(); ok && s == "" {
 			continue
 		}
 		kept = append(kept, p)
