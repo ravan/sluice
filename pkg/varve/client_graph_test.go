@@ -3,6 +3,7 @@ package varve
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -208,5 +209,54 @@ func TestIngestUnknownGraphIsTerminal404(t *testing.T) {
 	}
 	if n := count.Load(); n != 1 {
 		t.Errorf("server received %d requests, want 1 (no retry)", n)
+	}
+}
+
+func TestOrdinaryRedirectCannotChangeGraph(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		for _, graph := range []string{"org_a", ""} {
+			for _, hook := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%d/graph=%s/hook=%t", status, graph, hook), func(t *testing.T) {
+					var calls atomic.Int64
+					destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						calls.Add(1)
+						values := r.URL.Query()["graph"]
+						if (graph == "" && len(values) != 0) || (graph != "" && (len(values) != 1 || values[0] != graph)) {
+							t.Errorf("redirect changed configured graph %q to %#v", graph, values)
+						}
+						if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer secret" {
+							t.Error("lost POST or credentials")
+						}
+						body, err := io.ReadAll(r.Body)
+						if err != nil || string(body) != orderStreamNDJSON {
+							t.Errorf("body=%q err=%v", body, err)
+						}
+						_, _ = io.WriteString(w, `{}`)
+					}))
+					defer destination.Close()
+					source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Query().Get("graph") != graph {
+							t.Errorf("initial graph=%q", r.URL.RawQuery)
+						}
+						http.Redirect(w, r, destination.URL+"/v1/ingest?graph=other&graph=duplicate", status)
+					}))
+					defer source.Close()
+					hc := source.Client()
+					if hook {
+						hc.CheckRedirect = func(req *http.Request, via []*http.Request) error { req.URL.RawQuery = "graph=hook"; return nil }
+					}
+					c, err := NewClient(ClientConfig{Addr: source.URL, Token: "secret", Graph: graph, HTTP: hc, TrustedWriters: []string{destination.URL}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err = c.Ingest(context.Background(), orderStream()); err != nil {
+						t.Fatal(err)
+					}
+					if calls.Load() != 1 {
+						t.Fatalf("destination calls=%d", calls.Load())
+					}
+				})
+			}
+		}
 	}
 }

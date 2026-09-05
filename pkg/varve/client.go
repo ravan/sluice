@@ -107,13 +107,9 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return nil, fmt.Errorf("addr %q must be an absolute http/https URL", cfg.Addr)
 	}
-	trusted := map[string]bool{origin(u): true}
-	for _, addr := range cfg.TrustedWriters {
-		w, err := url.Parse(addr)
-		if err != nil || w.Host == "" || (w.Scheme != "http" && w.Scheme != "https") || w.User != nil || (w.Path != "" && w.Path != "/") || w.RawQuery != "" || w.Fragment != "" {
-			return nil, fmt.Errorf("trusted writer %q must be an HTTP origin", addr)
-		}
-		trusted[origin(w)] = true
+	trusted, err := trustedOrigins(u, cfg.TrustedWriters)
+	if err != nil {
+		return nil, err
 	}
 	token := cfg.TokenProvider
 	if token == nil {
@@ -151,6 +147,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		if req.Method != http.MethodPost {
 			return fmt.Errorf("%w: redirect changed POST method", errUnsafeRedirect)
 		}
+		setGraph(req.URL, cfg.Graph)
 		// net/http strips credentials across hosts, including explicitly trusted writers.
 		req.Header.Set("Authorization", via[0].Header.Get("Authorization"))
 		return nil
@@ -236,9 +233,7 @@ func sleepUntil(ctx context.Context, d time.Duration) error {
 // ingestURL is <base>/v1/ingest plus ?graph=<graph> when a graph is set.
 func (c *Client) ingestURL(base *url.URL) string {
 	u := base.JoinPath("/v1/ingest")
-	if c.graph != "" {
-		u.RawQuery = url.Values{"graph": {c.graph}}.Encode()
-	}
+	setGraph(u, c.graph)
 	return u.String()
 }
 
@@ -358,4 +353,26 @@ func (c *Client) Ingest(ctx context.Context, s Stream) (Receipt, error) {
 	}
 
 	return Receipt{}, fmt.Errorf("ingest: exhausted %d attempts", c.maxAttempts)
+}
+
+func trustedOrigins(base *url.URL, writers []string) (map[string]bool, error) {
+	trusted := map[string]bool{origin(base): true}
+	for _, addr := range writers {
+		w, err := url.Parse(addr)
+		if err != nil || w.Host == "" || (w.Scheme != "http" && w.Scheme != "https") || w.User != nil || (w.Path != "" && w.Path != "/") || w.RawQuery != "" || w.Fragment != "" {
+			return nil, fmt.Errorf("trusted writer %q must be an HTTP origin", addr)
+		}
+		trusted[origin(w)] = true
+	}
+	return trusted, nil
+}
+
+// setGraph keeps redirect responses and hooks from changing the selected graph.
+func setGraph(u *url.URL, graph string) {
+	query := u.Query()
+	query.Del("graph")
+	if graph != "" {
+		query.Set("graph", graph)
+	}
+	u.RawQuery = query.Encode()
 }
