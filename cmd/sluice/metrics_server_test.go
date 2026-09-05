@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"net/http"
 	"testing"
@@ -18,22 +19,37 @@ func TestMetricsServerClosesIncompleteHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Close()
-	go srv.Serve(ln)
+	t.Cleanup(func() {
+		if err := srv.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Error(err)
+		}
+	}()
 	conn, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err = conn.Write([]byte("GET /metrics HTTP/1.1\r\nHost:")); err != nil {
 		t.Fatal(err)
 	}
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	_, err = bufio.NewReader(conn).ReadByte()
 	if err == nil {
 		t.Fatal("expected incomplete request connection to close")
 	}
-	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		t.Fatal("server retained incomplete header connection")
 	}
 }

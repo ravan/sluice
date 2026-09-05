@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Package and edge IDs escape field delimiters. Evidence hashes and scalar
+  key-value and ID lists use byte-length prefixes. Existing graphs require
+  [replay into a fresh graph](docs/identity-migration.md).
+- `varve.Value` is a concrete scalar with private fields. `Str`, `Int`, `Float`,
+  and `Bool` are constructors. Replace type assertions with `AsString`, `AsInt`,
+  `AsFloat`, and `AsBool`. Uninitialized values and non-finite floats fail marshaling.
+- Writer redirects require a trusted origin. Configure additional origins with
+  `ClientConfig.TrustedWriters` or `sink.varve.trusted_writers`. HTTPS cannot
+  downgrade to HTTP.
+- Metrics default to `127.0.0.1:9464`. Set `--metrics-addr :9464` for all interfaces.
+
+### Fixed
+
+- Concurrent collection runs own their receivers and bound outstanding document
+  positions while preserving arrival order.
+- Exhausted sink retries terminate polling with committed progress. Shutdown
+  drains accepted work for up to 30 seconds, configurable through `Deps.DrainTimeout`.
+- Scanner errors and malformed expansion documents appear in receipts.
+  Clean OSV scans no longer produce affected claims.
+- HTTP response allocation is bounded, metrics connections have timeouts, and
+  vulnerable dependencies are upgraded. See the [dependency audit](docs/security-audit.md).
+
 ## v0.7.1 — 2026-09-03
 
 ### Fixed

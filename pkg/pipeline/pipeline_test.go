@@ -533,7 +533,7 @@ func propOf(n varve.NodeRecord, key string) (string, bool) {
 		if p.Key != key {
 			continue
 		}
-		if v, ok := p.Value.(varve.Str); ok {
+		if v, ok := p.Value.AsString(); ok {
 			return string(v), true
 		}
 	}

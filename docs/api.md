@@ -14,7 +14,7 @@ extend that stream, and writes it to a `Sink`. You supply the sink (usually
 | Identifier | Role |
 |---|---|
 | `Run(ctx, config.Config, Deps) (Receipt, error)` | The one entry point. One-shot when no receiver polls; daemon otherwise. |
-| `Deps{Sink, Observer, Now, Logger, Decorators, Enrichers}` | Injected I/O, clock, metrics, log, hooks, enrichers. Only `Sink` is required. |
+| `Deps{Sink, Observer, Now, Logger, Decorators, Enrichers, DrainTimeout}` | Injected I/O, clock, metrics, log, hooks, enrichers. Only `Sink` is required. `DrainTimeout` bounds accepted work after intake cancellation; zero defaults to 30 seconds. |
 | `Sink` | `Ingest(ctx, varve.Stream) (varve.Receipt, error)`. `*varve.Client` satisfies it. |
 | `Decorator` | `Decorate(ctx, DecorateInput) (varve.Stream, error)`. Runs after assemble, before the sink, once per document. Returned records merge into the document's stream. Must not modify `in.Records`. Must be safe for concurrent use. |
 | `DecorateInput` | `Raw`, `Digest` (lower-case hex sha256 of `Raw`), `Source`, `Origin`, `Doc`, `Preds`, `Records`, `ValidFrom`, `Fallback`, `Now`. |
@@ -30,9 +30,15 @@ and the run continues. In one-shot mode every document's stream is merged with
 `varve.Merge` and sent in one `POST`, so a decorator's records land in the same
 transaction as the document's Sluice records.
 
+Every collection run owns its receivers. Cancellation stops intake while accepted
+documents finish within the drain timeout, including the final one-shot batch.
+An exhausted sink failure terminates either mode and returns committed progress
+in the receipt. A drain timeout also returns an error.
+
 Enrichers run after assemble and before the decorators, in the order
 `config.Processors.Enrich.Policy.Sources` names — not `Deps.Enrichers` order. A
-policy naming a source no enricher was built for is skipped silently. Each
+policy naming an allowed source that requires an `Enricher` but has none records
+`ErrNoEnricher` in `Receipt.EnrichFailed`. Each
 enricher sees the claims the previous ones added. An enricher returns a `Claim`,
 which names no jurisdiction; `Policy.Stamp` turns it into the `StampedClaim` the
 fold sites take, so an enricher cannot state where its own host sits.
@@ -115,17 +121,19 @@ fold sites take, so an enricher cannot state where its own host sits.
 | Identifier | Role |
 |---|---|
 | `NewClient(ClientConfig) (*Client, error)` | Builds the `/v1/ingest` client. Errors on a bad `Addr`, an empty token pair, or a `Graph` starting with `__`. |
-| `ClientConfig{Addr, Token, TokenProvider, Graph, HTTP, MaxAttempts, OnRetry}` | `TokenProvider` wins over `Token`. `Graph` becomes `?graph=<name>`; empty means the Varve default graph. |
+| `ClientConfig{Addr, TrustedWriters, Token, TokenProvider, Graph, HTTP, MaxAttempts, OnRetry}` | `TokenProvider` wins over `Token`. `Graph` becomes `?graph=<name>`; empty means the Varve default graph. `TrustedWriters` lists additional trusted HTTP origins. `Addr` is implicitly trusted. |
 | `TokenProvider` | `func(ctx) (string, error)`. Called once per HTTP attempt. Must be safe for concurrent use. |
 | `StaticToken(string) TokenProvider` | Wraps a constant token. |
-| `(*Client).Ingest(ctx, Stream) (Receipt, error)` | Posts the stream. Retries 408/429/503 and transport errors with capped backoff. Follows one 421. Any terminal non-2xx is `*IngestError`. |
+| `(*Client).Ingest(ctx, Stream) (Receipt, error)` | Posts the stream. Retries 408/429/503 and transport errors with capped backoff. Writer redirects require a trusted origin and cannot downgrade HTTPS. Response bodies are limited to 1 MiB. Terminal HTTP errors are `*IngestError`; transport, redirect-policy, and response-limit errors are ordinary errors. |
 | `IngestError{Status, Message, Committed}` | A non-2xx answer. `Committed` is the chunk progress that survived. 404 `unknown_graph` arrives here. |
 | `Receipt` | What `/v1/ingest` returns: `Nodes`, `Edges`, `Transactions`, `Basis`, `SystemTime`. |
 | `Stream{Nodes, Edges}` | The record unit. Nodes first, then edges. |
 | `Merge(...Stream) Stream` | The one dedup rule: by id, first record wins, earliest non-zero `ValidFrom` wins, first-seen order. |
 | `NodeRecord`, `EdgeRecord`, `Prop` | One record each. `ValidFrom` zero means "omitted on the wire". |
 | `NodeID`, `EdgeID`, `NodeLabel`, `EdgeLabel` | String types for ids and labels. |
-| `Value`, `Str`, `Int`, `Float`, `Bool` | The closed set of property values the wire accepts. |
+| `Value` | A concrete scalar with private representation. Its zero value and non-finite floats fail JSON marshaling. |
+| `Str(string)`, `String(string)`, `Int(int64)`, `Float(float64)`, `Bool(bool)` | Scalar constructors returning `Value`. |
+| `(Value).AsString()`, `.AsInt()`, `.AsFloat()`, `.AsBool()` | Typed accessors returning the value and whether its type matches. |
 | `WriteNDJSON(io.Writer, Stream) error` | Renders a stream as bulk-ingest NDJSON. |
 
 ## `pkg/guacseam`
@@ -136,14 +144,16 @@ The only package that calls GUAC behaviour.
 |---|---|
 | `Collect(ctx, Sources, DocumentFunc) (Outcome, error)` | Runs every configured receiver once (or polls) and hands each parsed document to `fn` in arrival order. |
 | `DocumentFunc` | `func(ctx, Parsed) error`. An error aborts the pass. |
-| `Parsed{Source, Origin, Doc, Preds, Purls}` | One collected and parsed document. `Doc.Blob` holds the raw bytes. |
+| `Parsed{Source, Origin, Doc, Preds, Purls, ScanFailed}` | One collected and parsed document. `Doc.Blob` holds the raw bytes. `ScanFailed` carries scanner failures without rejecting the document. |
+| `ScanFailure{Source, Err}` | A scanner failure. The pipeline records it in `Receipt.EnrichFailed`. |
 | `Origin`, `OriginReceiver`, `OriginExpansion` | Where the document came from. |
-| `Sources{Files, OCI, S3, GCS, Scan, OnSkip}` | The receiver set for one pass. |
+| `Sources{Files, OCI, S3, GCS, Scan, OnSkip, ProcessingContext}` | The receiver set for one pass. An optional processing context controls accepted work separately from intake cancellation. |
+| `DrainContext(ctx, timeout) (context.Context, context.CancelFunc)` | Preserves context values and allows processing until the grace period after intake cancellation. Release it after the final flush. Zero timeout defaults to 30 seconds. |
 | `FilesReceiver`, `OCIReceiver`, `S3Receiver`, `GCSReceiver` | Receiver settings. |
 | `ScanFlags{Vulns, Licenses, EOL, DepsDev}` | The parse-time enrichment scanners. |
 | `Outcome{Documents, Failed}`, `FailedDocument{Source, Err}` | One pass's counts and skips. |
 | `ExpandDepsDev(ctx, purls, limit, DocumentFunc) (Expansion, error)` | Budget-bounded deps.dev expansion. Documents arrive with `OriginExpansion`. |
-| `Expansion{Collected, Limit, Exhausted}` | One expansion pass. |
+| `Expansion{Collected, Limit, Exhausted, Failed}` | One expansion pass, including malformed documents in `Failed`. The pipeline adds these failures to `Receipt.Skipped`. |
 
 ## `pkg/assemble`
 
@@ -157,6 +167,9 @@ The only package that calls GUAC behaviour.
 | `Prop*` constants | The property-key vocabulary, alongside `Label*` and `Edge*`. `pkg/enrich` reads evidence nodes back by these names, so a key is a cross-package contract. |
 | `CanonQualifiers`, `KVPair` | Purl qualifier canonicalisation. |
 
+The [identity encoding reference](identity-encoding.md) describes field escaping
+and length prefixes. Existing graphs require the [replay migration](identity-migration.md).
+
 ## `pkg/config`
 
 | Identifier | Role |
@@ -167,7 +180,7 @@ The only package that calls GUAC behaviour.
 | `Processors{ValidTime, Enrich, Expand}` | Guard bounds, enrichment policy, expansion budget. |
 | `EnrichProcessor{Policy, EUVDURL, VulnerableCode}` | The org's `enrich.Policy` plus the endpoints the enrichers this build carries need. Absent block means the zero policy, `euvd.DefaultURL` and `vulnerablecode.DefaultURL` at `us`. |
 | `VulnerableCodeProcessor{URL, Jurisdiction}` | The VulnerableCode endpoint and the jurisdiction of the host it names, from `processors.enrich.vulnerablecode.{url, jurisdiction}`. `Hosted()` renders it as the map `ParsePolicy` takes; it is the one place naming `SourceVulnerableCode`. |
-| `Sink{Varve}`, `VarveSink{Addr, TokenEnv, Graph}` | The writer declaration. `pipeline.Run` never reads it; the caller builds the client. |
+| `Sink{Varve}`, `VarveSink{Addr, TrustedWriters, TokenEnv, Graph}` | The writer declaration. `pipeline.Run` never reads it; the caller builds the client. `TrustedWriters` maps to `sink.varve.trusted_writers`. |
 
 ## `pkg/validtime`
 

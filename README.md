@@ -115,7 +115,9 @@ sluice ingest files ./sboms \
 sluice run --config pipeline.yaml
 ```
 
-It serves Prometheus metrics and `/healthz`, retries transient sink failures, and drains gracefully on `SIGTERM`.
+It serves Prometheus metrics and `/healthz`, retries transient sink failures, and drains accepted work on `SIGTERM` for up to 30 seconds.
+If sink retries are exhausted, the daemon exits with an error and reports committed progress.
+After recovery, replay the source documents. Restarting a file receiver rescans unchanged files.
 
 ## Configuration
 
@@ -148,6 +150,7 @@ processors:
 sink:
   varve:
     addr: http://127.0.0.1:8080
+    trusted_writers: []                  # additional trusted HTTP origins for writer redirects
     token_env: VARVE_TOKEN               # name of the env var holding the bearer token — no secret in the file
     graph: org_a                         # optional named Varve graph (Varve ≥ 1.1.0); omit for the default graph
 ```
@@ -177,13 +180,17 @@ sluice version                            print version information
 
 **Source-specific flags:** `--oci-registry`, `--oci-insecure` · `--s3-url`, `--s3-region`, `--s3-path`.
 
-**Daemon (`run`) flags:** `--config` (required) · `--metrics-addr` (default `:9464`, serves `/metrics` and `/healthz`) · `--log-level` (`debug|info|warn|error`, default `info`) · `--log-format` (`json|text`, default `json`).
+Writer redirects can reach the configured `addr` origin or an origin explicitly listed in `trusted_writers`.
+HTTPS redirects cannot downgrade to HTTP. Each trusted origin includes its scheme, host, and port, without a path or query.
+
+**Daemon (`run`) flags:** `--config` (required) · `--metrics-addr` (default `127.0.0.1:9464`, serves `/metrics` and `/healthz`) · `--log-level` (`debug|info|warn|error`, default `info`) · `--log-format` (`json|text`, default `json`).
+Use `--metrics-addr :9464` to expose metrics on all interfaces.
 
 The `VARVE_TOKEN` environment variable supplies the bearer token for every mode and is required; it is never accepted as a flag.
 
 ## Observability
 
-The daemon exposes Prometheus metrics and a health check on `--metrics-addr` (default `:9464`):
+The daemon exposes Prometheus metrics and a health check on `--metrics-addr` (default `127.0.0.1:9464`):
 
 | Metric | Description |
 |--------|-------------|
