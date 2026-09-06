@@ -57,6 +57,12 @@ const (
 	FactFixedBy     Fact = "fixed_by"
 )
 
+// Facts about where a package comes from.
+const (
+	FactSupplier      Fact = "supplier"       // the organisation that supplies the package, as one source names it
+	FactOriginCountry Fact = "origin_country" // ISO 3166-1 alpha-2, upper case
+)
+
 // FactValue is one fact paired with the value a source states for it. An
 // enricher builds these before it knows the subject they hang off.
 type FactValue struct {
@@ -70,6 +76,7 @@ var Facts = []Fact{
 	FactEUVDID, FactCVSS, FactCVSSVersion, FactCVSSVector, FactEPSS,
 	FactDescription, FactPublished, FactUpdated, FactReference,
 	FactAdvisoryID, FactFixedBy,
+	FactSupplier, FactOriginCountry,
 }
 
 // ErrUnknownFact is returned when a name falls outside Facts.

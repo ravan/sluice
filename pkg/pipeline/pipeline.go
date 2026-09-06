@@ -225,7 +225,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	// runs every allowed enricher in policy order, each seeing the claims the
 	// previous ones added. A failure is recorded and counted; the document is
 	// still ingested (plan D7).
-	enrichDocument := func(ctx context.Context, digest string, s varve.Stream, t time.Time) varve.Stream {
+	enrichDocument := func(ctx context.Context, digest string, raw []byte, s varve.Stream, t time.Time) varve.Stream {
 		merged, n := foldClaims(s, policy.Stamp(enrich.Derive(s)))
 		for _, src := range policy.Sources {
 			// A source the policy itself refuses is silent: that is the cap
@@ -247,7 +247,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 				logger.Warn("no enricher for a source the policy names", "source", src, "digest", digest)
 				continue
 			}
-			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Now: t})
+			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Document: raw, Now: t})
 			if err != nil {
 				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: err})
 				observer.EnrichFailed(src)
@@ -283,7 +283,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			observer.EnrichFailed(source)
 			logger.Warn("scanner failed", "source", source, "digest", digest, "error", failure.Err)
 		}
-		records := enrichDocument(ctx, digest, res.Stream, t)
+		records := enrichDocument(ctx, digest, raw, res.Stream, t)
 		if len(deps.Decorators) == 0 {
 			return records, true
 		}

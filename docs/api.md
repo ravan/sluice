@@ -47,8 +47,8 @@ fold sites take, so an enricher cannot state where its own host sits.
 
 | Identifier | Role |
 |---|---|
-| `Source`, `Jurisdiction` | String types. The seven `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
-| `Sources`, `Jurisdictions` | The closed source set, and each fixed-host source's jurisdiction. `vulnerablecode` has no entry: its host is a deployment choice, so `Policy.Hosted` supplies it. |
+| `Source`, `Jurisdiction` | String types. The ten `Source*` names match Silt's `rules.Enricher`; `EU`, `US`, `Other`. |
+| `Sources`, `Jurisdictions` | The closed source set, and each fixed-host source's jurisdiction. `vulnerablecode`, `sbom`, `purl` and `ecosystems` have no entry: `sbom` and `purl` call no host at all and the other two's hosts are a deployment choice, so `Policy.Hosted` supplies all four. |
 | `AllJurisdictions` | The closed jurisdiction set: `EU`, `US`, `Other`. |
 | `SourceRunner`, `(SourceRunner).String()`, `(Source).Runner()` | What produces a source's claims: `RunByEnricher` (the pipeline calls an `Enricher`, per document), `RunByScanner` (GUAC runs it in the parser, gated by `ScanFlags`), `RunByReplay` (a host job replays it). `String` gives `run_by_scanner` and its siblings. A source no table names is `RunByEnricher`, so a missing enricher is still reported; a test asserts every `Sources` entry is named, so that default is a safety net rather than the way a source is registered. |
 | `ParsePolicy([]string, bool, map[Source]Jurisdiction) (Policy, error)` | Validates source names and hosted jurisdictions. `ErrUnknownSource` (wrapped), a duplicate error, or `ErrUnknownJurisdiction` (wrapped). |
@@ -60,13 +60,13 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `(Policy).ScanFlags() guacseam.ScanFlags` | The same policy, gating GUAC's four in-parser scanners. |
 | `Claim{Source, Subject, Also, Fact, Value, Ref, ValidFrom, FetchedAt}` | One fact from one source about one subject. `Fact` is a `Fact`, not a string. There is no jurisdiction field: only the policy can supply one. |
 | `StampedClaim` | A `Claim` the policy has placed in a jurisdiction. `Jurisdiction()` reads it; `Records()` renders the node and its `ABOUT` edges. Only `Policy.Stamp` builds one. |
-| `Fact`, `Facts` | The closed set of fact names, including `advisory_id` and `fixed_by`. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
+| `Fact`, `Facts` | The closed set of fact names, including `advisory_id`, `fixed_by`, `supplier` and `origin_country`. `Fact` is part of a claim's identity, so an unlisted name would mint a second node instead of replaying onto the first. |
 | `ParseFact(string) (Fact, error)` | Validates a name read off the wire or out of config. `ErrUnknownFact` (wrapped). |
 | `FactValue{Fact, Value}` | One fact paired with the value a source states for it. An enricher builds these before it knows the subject. |
 | `Prop*` constants | The property-key vocabulary of a `Claim` node: `source`, `source_jurisdiction`, `fetched_at`, `fact`, `value`, `ref`, `subject_id`. |
 | `(Claim).ID()`, `(StampedClaim).Records()` | Identity is source, subject, fact, value, so a re-fetch replays onto the same node. `Records` renders one `Claim` node plus one `ABOUT` edge per subject. It sits on `StampedClaim`, so an unstamped claim cannot reach the graph. |
 | `LabelClaim`, `EdgeAbout` | The graph vocabulary enrichment adds. |
-| `Input{Digest, Records, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too. |
+| `Input{Digest, Records, Document, Now}` | One document as an enricher sees it. `Records` holds earlier enrichers' claims too; `Document` is the document's own bytes, nil when the pipeline holds none. |
 | `Enricher` | `Source() Source`; `Enrich(ctx, Input) ([]Claim, error)`. Must not modify `in.Records`. |
 | `VulnNames(varve.Stream) []string` | Every `Vulnerability` node of type `cve` or `euvd`, sorted and deduped. |
 | `VulnNodes(varve.Stream) map[string]varve.NodeID` | Every `Vulnerability` node's lower-cased `vulnID` to its node id. |
@@ -76,6 +76,34 @@ fold sites take, so an enricher cannot state where its own host sits.
 | `CVSS([]Severity) (Severity, bool)` | The first severity whose system starts `cvssv` **and** whose score parses as a number. One advisory mixes `cvssv3.1`, `cvssv4`, `generic_textual`, `epss` and `rhas` in one list. |
 | `EPSS([]Severity) (Severity, bool)` | The first severity whose system is exactly `epss`. |
 | `(Severity).Version() string` | What follows a CVSS system's `cvssv` prefix: `3.1`, or `3`. Empty for a non-CVSS system. |
+
+## `pkg/enrich/sbom`
+
+| Identifier | Role |
+|---|---|
+| `New() *Enricher` | Nothing to configure: the document already carries the answer, so this source calls no host. |
+| `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `supplier` claim per component the document names and the stream carries a `PkgVersion` node for, in purl order. `Ref` is the document digest. |
+| `Suppliers([]byte) map[string]string` | The per-component supplier name a CycloneDX 1.x or SPDX 2.x JSON document states, by purl. The root component is never read. Any other document, or bytes that are not JSON, is an empty map. |
+| `SupplierName(string) string` | An SPDX supplier field: `Organization: Acme GmbH (ops@acme.example)` -> `Acme GmbH`. `NOASSERTION`, `NONE` and `""` are `""`. |
+
+## `pkg/enrich/purl`
+
+| Identifier | Role |
+|---|---|
+| `Rule{Type, Namespace, Supplier, Country}`, `Rules` | Who supplies every package of this purl type whose namespace starts with `Namespace`. `Country` is `""` when the rule states none. Calls no host. |
+| `Origin{Supplier, Country, Ref}` | What a matched rule states. `Ref` is `Type + "/" + Namespace` of the rule that matched. |
+| `Lookup(string) (Origin, bool)` | The longest matching rule of the purl's type. `ok` is false when none matches or the string is not a purl. |
+| `New() *Enricher` | Nothing to configure. |
+| `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | Per matched `PkgVersion` node, one `supplier` claim and, where the rule knows one, one `origin_country` claim. |
+
+## `pkg/enrich/ecosystems`
+
+| Identifier | Role |
+|---|---|
+| `DefaultURL` | `https://packages.ecosyste.ms`. |
+| `New(baseURL string, client *http.Client) (*Enricher, error)` | A bad URL is an error; a nil client is a 20 s-timeout client. |
+| `(*Enricher).Source()`, `(*Enricher).Enrich(ctx, enrich.Input)` | One `GET <base>/api/v1/packages/lookup?purl=<purl>` per `PkgVersion` node. The first record's `repo_metadata.owner_record.name` is the `supplier`, its `repository_url` the `Ref`. An empty array or empty name states nothing. |
+| `ErrStatus` | A non-200 answer from the API. |
 
 ## `pkg/enrich/euvd`
 

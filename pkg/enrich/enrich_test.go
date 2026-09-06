@@ -28,6 +28,10 @@ func TestParsePolicy(t *testing.T) {
 		{name: "duplicate source", sources: []string{"osv", "osv"}, wantErr: true},
 		{name: "nil sources eu only", sources: nil, euOnly: true, want: Policy{EUOnly: true}},
 		{
+			name: "the origin sources", sources: []string{"sbom", "purl", "ecosystems"},
+			want: Policy{Sources: []Source{SourceSBOM, SourcePURL, SourceEcosystems}},
+		},
+		{
 			name: "hosted names a listed source", sources: []string{"vulnerablecode"},
 			hosted: map[Source]Jurisdiction{SourceVulnerableCode: EU},
 			want:   Policy{Sources: []Source{SourceVulnerableCode}, Hosted: map[Source]Jurisdiction{SourceVulnerableCode: EU}},
@@ -169,7 +173,7 @@ func vulnNode(typ, id string) varve.NodeRecord {
 }
 
 func TestJurisdictionOf(t *testing.T) {
-	p := Policy{Hosted: map[Source]Jurisdiction{SourceVulnerableCode: EU, SourceOSV: EU}}
+	p := Policy{Hosted: map[Source]Jurisdiction{SourceVulnerableCode: EU, SourceOSV: EU, SourceSBOM: EU}}
 	cases := []struct {
 		source Source
 		want   Jurisdiction
@@ -178,6 +182,7 @@ func TestJurisdictionOf(t *testing.T) {
 		{SourceOSV, EU}, // Hosted wins over the package table
 		{SourceEUVD, EU},
 		{SourceEOL, US},
+		{SourceSBOM, EU},
 		{Source("nvd"), Other},
 	}
 	for _, tc := range cases {
@@ -189,6 +194,9 @@ func TestJurisdictionOf(t *testing.T) {
 	}
 	if got := (Policy{}).JurisdictionOf(SourceVulnerableCode); got != Other {
 		t.Errorf("JurisdictionOf(vulnerablecode) with no Hosted = %q, want %q", got, Other)
+	}
+	if got := (Policy{}).JurisdictionOf(SourceSBOM); got != Other {
+		t.Errorf("JurisdictionOf(sbom) with no Hosted = %q, want %q", got, Other)
 	}
 }
 

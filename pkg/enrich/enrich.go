@@ -37,6 +37,14 @@ const (
 	// the network: a host job replays a git clone of it.
 	SourceFederatedCode Source = "federatedcode"
 
+	// SourceSBOM and SourcePURL are derived from the document and from the purl
+	// itself; neither calls a host, so the install names their jurisdiction
+	// through Policy.Hosted. SourceEcosystems calls packages.ecosyste.ms, whose
+	// host is likewise a deployment choice.
+	SourceSBOM       Source = "sbom"       // the document's own per-component supplier fields; calls no host
+	SourcePURL       Source = "purl"       // purl namespace rules; calls no host
+	SourceEcosystems Source = "ecosystems" // packages.ecosyste.ms package lookup
+
 	EU    Jurisdiction = "eu"
 	US    Jurisdiction = "us"
 	Other Jurisdiction = "other"
@@ -46,6 +54,7 @@ const (
 var Sources = []Source{
 	SourceEUVD, SourceVulnerableCode, SourceOSV,
 	SourceClearlyDefined, SourceEOL, SourceDepsDev, SourceFederatedCode,
+	SourceSBOM, SourcePURL, SourceEcosystems,
 }
 
 // SourceRunner says what produces a source's claims, so the pipeline looks for
@@ -71,6 +80,9 @@ var runners = map[Source]SourceRunner{
 	SourceEOL:            RunByScanner,
 	SourceDepsDev:        RunByScanner,
 	SourceFederatedCode:  RunByReplay,
+	SourceSBOM:           RunByEnricher,
+	SourcePURL:           RunByEnricher,
+	SourceEcosystems:     RunByEnricher,
 }
 
 // String names the runner, so a log line or a test failure reads as
@@ -212,9 +224,10 @@ func (p Policy) ScanFlags() guacseam.ScanFlags {
 // Input is one document as an enricher sees it. Records holds earlier
 // enrichers' claims too.
 type Input struct {
-	Digest  string // lower-case hex sha256 of the document bytes
-	Records varve.Stream
-	Now     time.Time
+	Digest   string // lower-case hex sha256 of the document bytes
+	Records  varve.Stream
+	Document []byte // the document's own bytes; nil when the pipeline holds none
+	Now      time.Time
 }
 
 // Enricher asks one source about a document and returns what it said.

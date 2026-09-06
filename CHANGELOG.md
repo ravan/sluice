@@ -26,6 +26,22 @@
 - HTTP response allocation is bounded, metrics connections have timeouts, and
   vulnerable dependencies are upgraded. See the [dependency audit](docs/security-audit.md).
 
+## v0.8.0 — 2026-09-06
+
+### Added
+
+- Two facts about where a package comes from: `supplier`, the organisation one
+  source names as supplying it, and `origin_country`, that supplier's ISO 3166-1
+  alpha-2 code.
+- Three sources that state them. `sbom` reads the per-component supplier fields a
+  CycloneDX or SPDX document already carries. `purl` reads a namespace table:
+  `golang.org/x/` is Google, `rpm/opensuse/` is the openSUSE Project. Neither
+  calls a host, so an install names their jurisdiction through `Policy.Hosted`.
+  `ecosystems` asks packages.ecosyste.ms who owns the repository the package is
+  published from.
+- `enrich.Input.Document` carries the document's own bytes, which is what the
+  `sbom` source reads. It is nil when the pipeline holds none.
+
 ## v0.7.1 — 2026-09-03
 
 ### Fixed

@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -242,5 +243,26 @@ func TestEnrichStaysSilentWhenThePolicyItselfBlocksTheSource(t *testing.T) {
 	}
 	if len(rec.EnrichFailed) != 0 {
 		t.Errorf("EnrichFailed = %+v, want empty: the cap refusing a source is the feature, not a fault", rec.EnrichFailed)
+	}
+}
+
+func TestEnricherSeesTheDocumentBytes(t *testing.T) {
+	euvdFake := &fakeEnricher{source: enrich.SourceEUVD}
+	fake := &fakeSink{responses: []response{{}}}
+
+	if _, err := runOneShotPolicy(t, fixtureDir, fake,
+		enrich.Policy{Sources: []enrich.Source{enrich.SourceEUVD}},
+		pipeline.Deps{Enrichers: []enrich.Enricher{euvdFake}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(euvdFake.inputs) != 1 {
+		t.Fatalf("the euvd enricher was called %d times, want 1", len(euvdFake.inputs))
+	}
+	want, err := os.ReadFile(filepath.Join(fixtureDir, "small-spdx.json"))
+	if err != nil {
+		t.Fatalf("reading fixture: %v", err)
+	}
+	if !bytes.Equal(euvdFake.inputs[0].Document, want) {
+		t.Errorf("Input.Document is %d bytes, want the document's own %d bytes", len(euvdFake.inputs[0].Document), len(want))
 	}
 }

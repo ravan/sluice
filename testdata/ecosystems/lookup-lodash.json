@@ -1,0 +1,25 @@
+[
+  {
+    "name": "lodash",
+    "purl": "pkg:npm/lodash",
+    "namespace": null,
+    "registry": {
+      "name": "npmjs.org",
+      "ecosystem": "npm"
+    },
+    "repository_url": "https://github.com/lodash/lodash",
+    "licenses": "MIT",
+    "maintainers": [
+      {
+        "login": "jdalton"
+      }
+    ],
+    "repo_metadata": {
+      "owner_record": {
+        "name": "Lodash Utilities",
+        "login": "lodash",
+        "kind": "organization"
+      }
+    }
+  }
+]
