@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## v0.9.0 — 2026-09-14
+
+### Added
+
+- `Deps.PrepareWorkers` spreads the per-document stage — assemble, enrich and
+  the decorator chain — over several goroutines. `pipeline.AutoWorkers` asks
+  for one worker per core less one; zero and one keep the serial pipeline, so
+  nothing changes for a caller that does not ask. The receipt and the sink
+  still see documents in arrival order at any width, so a run's output does
+  not depend on it.
+
+  Above one worker the pipeline calls every `Decorator` and every `Enricher`
+  from more than one goroutine and in no fixed order. That is why it is
+  opt-in: a decorator that counts, caches or allocates per document has to
+  guard its own state first.
 
 ### Breaking changes
 

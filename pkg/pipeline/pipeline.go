@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ravan/sluice/pkg/assemble"
@@ -120,6 +122,50 @@ type Deps struct {
 	Logger       *slog.Logger      // nil ⇒ slog over io.Discard
 	Decorators   []Decorator       // run in order; each sees the stream the previous ones extended
 	Enrichers    []enrich.Enricher // available sources; the config's policy picks and orders them
+	// PrepareWorkers bounds how many documents assemble→enrich→decorate at
+	// once. Zero (the default) and 1 both mean one document at a time.
+	// AutoWorkers means GOMAXPROCS-1, leaving one core for the collector's
+	// own parse fan-out. Whatever the width, the receipt and the sink see
+	// documents in arrival order, so a run's output does not depend on it.
+	//
+	// It is opt-in because above 1 the pipeline calls every Decorator and
+	// every Enricher from more than one goroutine, and in no fixed order:
+	// a decorator that counts, caches or allocates per document must guard
+	// that state and must not read anything into the order it is called in.
+	// The caller that wrote them is the one who knows.
+	PrepareWorkers int
+}
+
+// AutoWorkers asks Deps.PrepareWorkers for one worker per core, less one for
+// the collector's parse fan-out.
+const AutoWorkers = -1
+
+// prepareWorkers resolves Deps.PrepareWorkers to a width of at least 1.
+// Anything but AutoWorkers and a positive count is one worker: the default
+// stays the serial pipeline every caller already has.
+func prepareWorkers(n int) int {
+	if n > 0 {
+		return n
+	}
+	if n != AutoWorkers {
+		return 1
+	}
+	if w := runtime.GOMAXPROCS(0) - 1; w > 1 {
+		return w
+	}
+	return 1
+}
+
+// docEffects is the book-keeping one document produced while it was prepared.
+// A worker fills it; the sequencer folds it into the receipt in arrival order,
+// so a concurrent run's receipt is identical to a serial one's.
+type docEffects struct {
+	fallbacks      int
+	enrichFailed   []EnrichError
+	claims         int
+	decorated      bool
+	decorateFailed *DecorateError
+	scanFailed     []EnrichError
 }
 
 // sourcesFromConfig maps configured receivers into a guacseam.Sources (Scan and
@@ -225,7 +271,7 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	// runs every allowed enricher in policy order, each seeing the claims the
 	// previous ones added. A failure is recorded and counted; the document is
 	// still ingested (plan D7).
-	enrichDocument := func(ctx context.Context, digest string, raw []byte, s varve.Stream, t time.Time) varve.Stream {
+	enrichDocument := func(ctx context.Context, digest string, raw []byte, s varve.Stream, t time.Time, eff *docEffects) varve.Stream {
 		merged, n := foldClaims(s, policy.Stamp(enrich.Derive(s)))
 		for _, src := range policy.Sources {
 			// A source the policy itself refuses is silent: that is the cap
@@ -242,35 +288,30 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			}
 			e := enricherFor(deps.Enrichers, src)
 			if e == nil {
-				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: ErrNoEnricher})
-				observer.EnrichFailed(src)
-				logger.Warn("no enricher for a source the policy names", "source", src, "digest", digest)
+				eff.enrichFailed = append(eff.enrichFailed, EnrichError{Source: src, Digest: digest, Err: ErrNoEnricher})
 				continue
 			}
 			claims, err := e.Enrich(ctx, enrich.Input{Digest: digest, Records: merged, Document: raw, Now: t})
 			if err != nil {
-				rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: src, Digest: digest, Err: err})
-				observer.EnrichFailed(src)
-				logger.Warn("enrichment failed", "source", src, "digest", digest, "error", err)
+				eff.enrichFailed = append(eff.enrichFailed, EnrichError{Source: src, Digest: digest, Err: err})
 				continue
 			}
 			var added int
 			merged, added = foldClaims(merged, policy.Stamp(claims))
 			n += added
 		}
-		rec.Claims += n
-		observer.ClaimsEmitted(n)
+		eff.claims += n
 		return merged
 	}
 
 	// prepare assembles one document, enriches it and runs the decorator chain
 	// over its stream. ok=false means a decorator rejected it: recorded,
 	// counted, skipped.
-	prepare := func(ctx context.Context, p guacseam.Parsed) (varve.Stream, bool) {
+	prepare := func(ctx context.Context, p guacseam.Parsed) (varve.Stream, bool, docEffects) {
+		var eff docEffects
 		t := now()
 		res := assemble.Assemble(ctx, p.Preds, guard, t)
-		rec.Fallbacks += res.Fallbacks
-		observer.FallbacksCounted(res.Fallbacks)
+		eff.fallbacks = res.Fallbacks
 		var raw []byte
 		if p.Doc != nil {
 			raw = p.Doc.Blob
@@ -278,14 +319,11 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		sum := sha256.Sum256(raw)
 		digest := hex.EncodeToString(sum[:])
 		for _, failure := range p.ScanFailed {
-			source := enrich.Source(failure.Source)
-			rec.EnrichFailed = append(rec.EnrichFailed, EnrichError{Source: source, Digest: digest, Err: failure.Err})
-			observer.EnrichFailed(source)
-			logger.Warn("scanner failed", "source", source, "digest", digest, "error", failure.Err)
+			eff.scanFailed = append(eff.scanFailed, EnrichError{Source: enrich.Source(failure.Source), Digest: digest, Err: failure.Err})
 		}
-		records := enrichDocument(ctx, digest, raw, res.Stream, t)
+		records := enrichDocument(ctx, digest, raw, res.Stream, t, &eff)
 		if len(deps.Decorators) == 0 {
-			return records, true
+			return records, true, eff
 		}
 		in := DecorateInput{
 			Raw:       raw,
@@ -303,16 +341,46 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 			extra, err := d.Decorate(ctx, in)
 			if err != nil {
 				de := DecorateError{Source: p.Source, Digest: digest, Err: err}
-				rec.DecorateFailed = append(rec.DecorateFailed, de)
-				observer.DocumentDecorateFailed()
-				logger.Warn("document rejected by decorator", "source", p.Source, "digest", in.Digest, "error", err)
-				return varve.Stream{}, false
+				eff.decorateFailed = &de
+				return varve.Stream{}, false, eff
 			}
 			in.Records = varve.Merge(in.Records, extra)
 		}
-		rec.Decorated++
-		observer.DocumentDecorated()
-		return in.Records, true
+		eff.decorated = true
+		return in.Records, true, eff
+	}
+
+	// applyEffects folds one document's book-keeping into the receipt and the
+	// observer. The sequencer is the only caller and it calls in arrival
+	// order, so the receipt's slices keep the order a serial run gave them.
+	applyEffects := func(eff docEffects) {
+		rec.Fallbacks += eff.fallbacks
+		observer.FallbacksCounted(eff.fallbacks)
+		for _, e := range eff.scanFailed {
+			rec.EnrichFailed = append(rec.EnrichFailed, e)
+			observer.EnrichFailed(e.Source)
+			logger.Warn("scanner failed", "source", e.Source, "digest", e.Digest, "error", e.Err)
+		}
+		for _, e := range eff.enrichFailed {
+			rec.EnrichFailed = append(rec.EnrichFailed, e)
+			observer.EnrichFailed(e.Source)
+			if errors.Is(e.Err, ErrNoEnricher) {
+				logger.Warn("no enricher for a source the policy names", "source", e.Source, "digest", e.Digest)
+				continue
+			}
+			logger.Warn("enrichment failed", "source", e.Source, "digest", e.Digest, "error", e.Err)
+		}
+		rec.Claims += eff.claims
+		observer.ClaimsEmitted(eff.claims)
+		if de := eff.decorateFailed; de != nil {
+			rec.DecorateFailed = append(rec.DecorateFailed, *de)
+			observer.DocumentDecorateFailed()
+			logger.Warn("document rejected by decorator", "source", de.Source, "digest", de.Digest, "error", de.Err)
+		}
+		if eff.decorated {
+			rec.Decorated++
+			observer.DocumentDecorated()
+		}
 	}
 
 	ingestStream := func(ctx context.Context, source string, s varve.Stream) error {
@@ -362,45 +430,61 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 	// (§2.6). Poll mode has no end-of-pass flush point, so it sinks per document.
 	var batch []varve.Stream
 	var batched int
-	var fn guacseam.DocumentFunc
-	if oneShot {
-		fn = func(ctx context.Context, p guacseam.Parsed) error {
-			s, ok := prepare(ctx, p)
-			if !ok {
-				return nil // rejected by a decorator: counted, skipped, no expansion
-			}
+
+	// handle is the ordered half of a document's life: the receipt, the batch
+	// and the sink. It runs on one goroutine, one document at a time, in
+	// arrival order, whatever width prepare ran at.
+	handle := func(ctx context.Context, p guacseam.Parsed, s varve.Stream, ok bool, eff docEffects) error {
+		applyEffects(eff)
+		if !ok {
+			return nil // rejected by a decorator: counted, skipped, no expansion
+		}
+		if oneShot {
 			batch = append(batch, s)
 			batched++
 			return expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
-				if es, ok := prepare(ctx, ep); ok {
+				es, eok, eeff := prepare(ctx, ep)
+				applyEffects(eeff)
+				if eok {
 					batch = append(batch, es)
 				}
 				return nil
 			})
 		}
-	} else {
-		fn = func(ctx context.Context, p guacseam.Parsed) error {
-			s, ok := prepare(ctx, p)
-			if !ok {
-				return nil // rejected by a decorator: counted, skipped, no expansion
+		if err := ingestStream(ctx, p.Source, s); err != nil {
+			observer.DocumentFailed()
+			return err
+		}
+		observer.DocumentIngested()
+		return expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
+			es, eok, eeff := prepare(ctx, ep)
+			applyEffects(eeff)
+			if !eok {
+				return nil
 			}
-			if err := ingestStream(ctx, p.Source, s); err != nil {
+			if err := ingestStream(ctx, ep.Source, es); err != nil {
 				observer.DocumentFailed()
 				return err
 			}
-			observer.DocumentIngested()
-			return expand(ctx, p.Source, p.Purls, func(ctx context.Context, ep guacseam.Parsed) error {
-				es, ok := prepare(ctx, ep)
-				if !ok {
-					return nil
-				}
-				if err := ingestStream(ctx, ep.Source, es); err != nil {
-					observer.DocumentFailed()
-					return err
-				}
-				return nil
-			})
+			return nil
+		})
+	}
+
+	// prepare is per-document CPU and per-document network (the enrichers),
+	// and it is the stage a pass spends its wall clock in. Spreading it over
+	// workers while handle stays ordered keeps every output identical and
+	// lets the cores work.
+	workers := prepareWorkers(deps.PrepareWorkers)
+	var fn guacseam.DocumentFunc
+	var drainPool func() error
+	if workers == 1 {
+		fn = func(ctx context.Context, p guacseam.Parsed) error {
+			s, ok, eff := prepare(ctx, p)
+			return handle(ctx, p, s, ok, eff)
 		}
+	} else {
+		pool := startPreparePool(workCtx, workers, prepare, handle)
+		fn, drainPool = pool.submit, pool.drain
 	}
 
 	src := sourcesFromConfig(cfg.Receivers)
@@ -411,6 +495,13 @@ func Run(ctx context.Context, cfg config.Config, deps Deps) (Receipt, error) {
 		logger.Warn("document skipped", "source", fd.Source, "error", fd.Err)
 	}
 	out, err := guacseam.Collect(ctx, src, fn)
+	// Every worker and the sequencer must be finished before the receipt is
+	// read: they are the ones writing it.
+	if drainPool != nil {
+		if perr := drainPool(); err == nil {
+			err = perr
+		}
+	}
 	rec.Documents = out.Documents
 	rec.Skipped = append(rec.Skipped, out.Failed...)
 	if err != nil {
@@ -435,4 +526,124 @@ func fold(rec *Receipt, r varve.Receipt) {
 	rec.Edges += r.Edges
 	rec.Transactions += r.Transactions
 	rec.Basis = r.Basis
+}
+
+// preparedDoc is one document on its way through the pool: the parse result
+// going in, and the prepare output plus its book-keeping coming back. seq is
+// the arrival position that puts it back in order.
+type preparedDoc struct {
+	seq int
+	p   guacseam.Parsed
+	s   varve.Stream
+	ok  bool
+	eff docEffects
+}
+
+// preparePool runs prepare on several documents at once and hands each result
+// to handle on one goroutine, in arrival order. handle is therefore as serial
+// as it ever was; only the per-document work spreads out.
+type preparePool struct {
+	ctx  context.Context
+	jobs chan preparedDoc
+	done chan struct{}
+	seq  int
+
+	mu  sync.Mutex
+	err error
+}
+
+// startPreparePool starts workers and the sequencer. Call drain once the
+// producer is finished, before reading anything handle wrote.
+func startPreparePool(
+	ctx context.Context,
+	workers int,
+	prepare func(context.Context, guacseam.Parsed) (varve.Stream, bool, docEffects),
+	handle func(context.Context, guacseam.Parsed, varve.Stream, bool, docEffects) error,
+) *preparePool {
+	pool := &preparePool{ctx: ctx, jobs: make(chan preparedDoc), done: make(chan struct{})}
+	results := make(chan preparedDoc, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range pool.jobs {
+				j.s, j.ok, j.eff = prepare(ctx, j.p)
+				select {
+				case results <- j:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() { wg.Wait(); close(results) }()
+	go pool.sequence(results, handle)
+	return pool
+}
+
+// sequence delivers results to handle in arrival order, holding the ones that
+// finished early until their turn comes.
+func (pool *preparePool) sequence(
+	results <-chan preparedDoc,
+	handle func(context.Context, guacseam.Parsed, varve.Stream, bool, docEffects) error,
+) {
+	defer close(pool.done)
+	pending := map[int]preparedDoc{}
+	next := 0
+	for r := range results {
+		pending[r.seq] = r
+		for pool.failed() == nil {
+			q, ok := pending[next]
+			if !ok {
+				break
+			}
+			delete(pending, next)
+			next++
+			if err := handle(pool.ctx, q.p, q.s, q.ok, q.eff); err != nil {
+				pool.fail(err)
+			}
+		}
+	}
+}
+
+// submit queues one document. It blocks while every worker is busy, which is
+// what holds the whole pass to a bounded number of documents in flight.
+func (pool *preparePool) submit(ctx context.Context, p guacseam.Parsed) error {
+	// A sink failure downstream aborts intake at the next document, as it
+	// does when the stages are one goroutine.
+	if err := pool.failed(); err != nil {
+		return err
+	}
+	select {
+	case pool.jobs <- preparedDoc{seq: pool.seq, p: p}:
+		pool.seq++
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-pool.ctx.Done():
+		return pool.ctx.Err()
+	}
+}
+
+// drain closes intake and waits for every worker and the sequencer to finish.
+// Until it returns, the receipt is still being written.
+func (pool *preparePool) drain() error {
+	close(pool.jobs)
+	<-pool.done
+	return pool.failed()
+}
+
+func (pool *preparePool) fail(err error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if pool.err == nil {
+		pool.err = err
+	}
+}
+
+func (pool *preparePool) failed() error {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return pool.err
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,9 +20,20 @@ import (
 
 // docDecorator adds a Document node per input and links it to the first
 // HasSBOM node it finds in in.Records. It records every input it saw.
+//
+// The mutex is the contract Deps.PrepareWorkers states: above one worker a
+// decorator is called from more than one goroutine.
 type docDecorator struct {
+	mu   sync.Mutex
 	seen []pipeline.DecorateInput
 	fail func(in pipeline.DecorateInput) error
+}
+
+// inputs is the copy of seen a test reads.
+func (d *docDecorator) inputs() []pipeline.DecorateInput {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]pipeline.DecorateInput(nil), d.seen...)
 }
 
 func firstLabelled(s varve.Stream, label varve.NodeLabel) (varve.NodeID, bool) {
@@ -36,7 +48,9 @@ func firstLabelled(s varve.Stream, label varve.NodeLabel) (varve.NodeID, bool) {
 }
 
 func (d *docDecorator) Decorate(_ context.Context, in pipeline.DecorateInput) (varve.Stream, error) {
+	d.mu.Lock()
 	d.seen = append(d.seen, in)
+	d.mu.Unlock()
 	if d.fail != nil {
 		if err := d.fail(in); err != nil {
 			return varve.Stream{}, err
@@ -57,14 +71,24 @@ func (d *docDecorator) Decorate(_ context.Context, in pipeline.DecorateInput) (v
 
 // chainDecorator asserts it can see the Document node a previous decorator added.
 type chainDecorator struct {
+	mu         sync.Mutex
 	sawDocNode int
 }
 
 func (c *chainDecorator) Decorate(_ context.Context, in pipeline.DecorateInput) (varve.Stream, error) {
 	if _, ok := firstLabelled(in.Records, "Document"); ok {
+		c.mu.Lock()
 		c.sawDocNode++
+		c.mu.Unlock()
 	}
 	return varve.Stream{}, nil
+}
+
+// seenDocNode is the count a test reads.
+func (c *chainDecorator) seenDocNode() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sawDocNode
 }
 
 func runOneShotWith(t *testing.T, dir string, sink pipeline.Sink, obs pipeline.Observer, decs ...pipeline.Decorator) (pipeline.Receipt, error) {
