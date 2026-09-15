@@ -16,6 +16,8 @@ import (
 	"github.com/guacsec/guac/pkg/ingestor/parser"
 	"github.com/guacsec/guac/pkg/ingestor/parser/common"
 	"github.com/guacsec/guac/pkg/logging"
+
+	"github.com/ravan/sluice/pkg/guacseam/cosignvuln"
 )
 
 // FailedDocument names a document that did not survive processing or parsing.
@@ -100,6 +102,9 @@ type Sources struct {
 // processAndParse parses base evidence. Scanners run separately so their errors
 // can be included in the receipt without losing the base document.
 func processAndParse(ctx context.Context, doc *processor.Document) ([]assembler.IngestPredicates, []string, error) {
+	// GUAC's guesser files a cosign vulnerability statement as a generic ITE6
+	// document, which has no parser. Type it first so it reaches ours.
+	cosignvuln.Classify(doc)
 	tree, err := process.Process(ctx, doc)
 	if err != nil {
 		return nil, nil, err

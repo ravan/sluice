@@ -1,0 +1,175 @@
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "predicateType": "https://cosign.sigstore.dev/attestation/vuln/v1",
+  "subject": [
+    {
+      "name": "",
+      "digest": {
+        "sha256": ""
+      }
+    }
+  ],
+  "predicate": {
+    "invocation": {
+      "parameters": null,
+      "uri": "",
+      "event_id": "",
+      "builder.id": ""
+    },
+    "scanner": {
+      "uri": "pkg:github/aquasecurity/trivy@0.74.0",
+      "version": "0.74.0",
+      "db": {
+        "uri": "",
+        "version": ""
+      },
+      "result": {
+        "SchemaVersion": 2,
+        "Trivy": {
+          "Version": "0.74.0"
+        },
+        "ReportID": "01a05f1d-e3f9-7641-bf21-1699e5ab70b5",
+        "CreatedAt": "2026-09-01T22:36:29.561410906Z",
+        "ArtifactID": "sha256:f7025e8d0e8cb8519665822ca6649b64cdd206b43547be2b30dc1de600c7d5ff",
+        "ArtifactName": "alertmanager:0.34.0-21.8",
+        "ArtifactType": "container_image",
+        "Metadata": {
+          "Size": 68186624,
+          "OS": {
+            "Family": "sles",
+            "Name": "15.7"
+          },
+          "ImageID": "sha256:71d301bb1b2088fd5566a8af9f2d04f0090c44e3c1c72736680e8084aa81a9ef",
+          "DiffIDs": [
+            "sha256:0aba3ae066296ada172da2b42ddfc3374264f806ad885679bea9e96cb1dca2c9",
+            "sha256:59f86cca324b25a0e4bb3f960a9c4d9221f3b09f78b8a79ad80deb25476469ce"
+          ],
+          "RepoTags": [
+            "alertmanager:0",
+            "alertmanager:0.34.0",
+            "alertmanager:0.34.0-21.8"
+          ],
+          "Reference": "alertmanager:0.34.0-21.8",
+          "ImageConfig": {
+            "architecture": "amd64",
+            "container": "4c06d66390edcde316580d9d92ccb261457ef1a4a5b26d95edc40b7480e8f96d",
+            "created": "2026-09-01T22:35:25.284652156Z",
+            "docker_version": "28.5.1-ce",
+            "os": "linux",
+            "config": {
+              "Cmd": [
+                "--config.file=/etc/alertmanager/alertmanager.yml",
+                "--storage.path=/alertmanager"
+              ],
+              "Entrypoint": [
+                "/usr/bin/alertmanager"
+              ],
+              "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              ],
+              "Image": "sha256:a24e2c88507125f4fc9a7b1302ff001bfea5675fb6c16260d7369aa07e4c1e58",
+              "Labels": {
+                "com.suse.apps.main-package": "alertmanager-0",
+                "org.openbuildservice.disturl": "obs://build.suse.de/Devel:Orchid:Containers/containers/2b4fb4e8f9e5a8f63443b54f82df1311-alertmanager-0",
+                "org.opencontainers.image.base.digest": "sha256:4cdcad941236068fdf4cac1f3008600d478ebbf78236677452a662ae1f3fe792",
+                "org.opencontainers.image.base.name": "registry.suse.com/bci/bci-micro:15.7-60.7",
+                "org.opencontainers.image.created": "2026-09-01T22:35:14.651994805Z",
+                "org.opencontainers.image.description": "The Alertmanager handles alerts sent by client applications such as the Prometheus server. It takes care of deduplicating, grouping, and routing them to the correct receiver integrations such as email, PagerDuty, OpsGenie, or many other mechanisms thanks to the webhook receiver. It also takes care of silencing and inhibition of alerts.",
+                "org.opencontainers.image.ref.name": "0.34.0-21.8",
+                "org.opencontainers.image.title": "Alertmanager",
+                "org.opencontainers.image.url": "https://apps.rancher.io/applications/alertmanager",
+                "org.opencontainers.image.vendor": "SUSE LLC",
+                "org.opencontainers.image.version": "0.34.0"
+              },
+              "User": "1000",
+              "WorkingDir": "/alertmanager"
+            }
+          }
+        },
+        "Results": [
+          {
+            "Target": "alertmanager:0.34.0-21.8 (sles 15.7)",
+            "Class": "os-pkgs",
+            "Type": "sles"
+          },
+          {
+            "Target": "usr/bin/alertmanager",
+            "Class": "lang-pkgs",
+            "Type": "gobinary",
+            "Vulnerabilities": [
+              {
+                "VulnerabilityID": "CVE-2026-56854",
+                "VendorIDs": [
+                  "GO-2026-6303"
+                ],
+                "PkgID": "golang.org/x/crypto@v0.54.0",
+                "PkgName": "golang.org/x/crypto",
+                "PkgIdentifier": {
+                  "PURL": "pkg:golang/golang.org/x/crypto@v0.54.0",
+                  "UID": "4591393e5f74c3b"
+                },
+                "InstalledVersion": "v0.54.0",
+                "FixedVersion": "0.55.0",
+                "Status": "fixed",
+                "Layer": {
+                  "DiffID": "sha256:59f86cca324b25a0e4bb3f960a9c4d9221f3b09f78b8a79ad80deb25476469ce"
+                },
+                "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-56854",
+                "DataSource": {
+                  "ID": "govulndb",
+                  "Name": "The Go Vulnerability Database",
+                  "URL": "https://pkg.go.dev/vuln/"
+                },
+                "Fingerprint": "sha256:bfe85d574cdb170056140dd725469d36cfc34cd4ebf3462cf1dff719ea845683",
+                "Title": "The source-address critical option in the Permissions returned by an a ...",
+                "Description": "The source-address critical option in the Permissions returned by an authentication callback was only enforced for the P",
+                "Severity": "UNKNOWN",
+                "CweIDs": [
+                  "CWE-863"
+                ],
+                "References": [
+                  "https://go.dev/cl/797040",
+                  "https://go.dev/issue/80213",
+                  "https://pkg.go.dev/vuln/GO-2026-6303"
+                ],
+                "PublishedDate": "2026-08-28T16:18:17.607Z",
+                "LastModifiedDate": "2026-08-28T22:16:52.22Z"
+              },
+              {
+                "VulnerabilityID": "GO-2026-5932",
+                "PkgID": "golang.org/x/crypto@v0.54.0",
+                "PkgName": "golang.org/x/crypto",
+                "PkgIdentifier": {
+                  "PURL": "pkg:golang/golang.org/x/crypto@v0.54.0",
+                  "UID": "4591393e5f74c3b"
+                },
+                "InstalledVersion": "v0.54.0",
+                "Status": "affected",
+                "Layer": {
+                  "DiffID": "sha256:59f86cca324b25a0e4bb3f960a9c4d9221f3b09f78b8a79ad80deb25476469ce"
+                },
+                "DataSource": {
+                  "ID": "govulndb",
+                  "Name": "The Go Vulnerability Database",
+                  "URL": "https://pkg.go.dev/vuln/"
+                },
+                "Fingerprint": "sha256:0a0ba1ec34c8cab07e373d9781c2bbecbce02180ffc820c9ba03b4a8e036c447",
+                "Title": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues",
+                "Description": "The golang.org/x/crypto/openpgp package is unsafe by design, has numerous known security issues, is not maintained, and ",
+                "Severity": "UNKNOWN",
+                "References": [
+                  "https://go.dev/issue/44226",
+                  "https://pkg.go.dev/vuln/GO-2026-5932"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "metadata": {
+      "scanStartedOn": "2026-09-01T22:36:29.575057273Z",
+      "scanFinishedOn": "2026-09-01T22:36:29.575057273Z"
+    }
+  }
+}

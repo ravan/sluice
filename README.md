@@ -41,7 +41,7 @@ flowchart LR
     K --> V[("Varve<br/>bitemporal graph")]
 ```
 
-1. **Collect** — GUAC's collectors and format parsers turn source documents (SPDX, CycloneDX, in-toto attestations, …) into GUAC's in-memory model.
+1. **Collect** — GUAC's collectors and format parsers turn source documents (SPDX, CycloneDX, in-toto attestations, …) into GUAC's in-memory model. sluice adds one parser of its own, for the [cosign vulnerability attestation](https://github.com/sigstore/cosign/blob/main/specs/COSIGN_VULN_ATTESTATION_SPEC.md) that wraps a Trivy report, which GUAC would otherwise skip.
 2. **Process** — optional, config-gated stages resolve valid time (with a guard and counted fallback), enrich packages with external evidence, and expand transitive dependencies.
 3. **Assemble & sink** — each document is mapped to a stream of deterministic records — `PkgName`, `PkgVersion`, `SrcName`, vulnerability and evidence nodes joined by first-class semantic edges (`PkgHasVersion`, `IsDependency`, `IsOccurrence`, `HasSbom`, `CertifyVuln`, `CertifyScorecard`, `HasSourceAt`, …) — and streamed to Varve over `POST /v1/ingest`.
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A parser for the cosign vulnerability attestation
+  (`https://cosign.sigstore.dev/attestation/vuln/v1`), whose
+  `scanner.result` is a whole Trivy report. GUAC's guesser filed it as a
+  generic in-toto statement with no parser, so every such document was
+  skipped; `pkg/guacseam/cosignvuln` types it first and parses it. Each
+  finding becomes `CertifyVuln` on the package Trivy names and on every
+  subject that names a purl, its CVSS scores become `VulnMetadata`, its
+  vendor ids become `VulnEqual`, and a subject with a purl and a digest
+  becomes `IsOccurrence`. A subject with neither, as OBS writes today, is
+  ignored and the findings still land on the affected packages.
+
 ## v0.9.0 — 2026-09-14
 
 ### Added

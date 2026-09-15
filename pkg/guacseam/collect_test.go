@@ -256,3 +256,28 @@ func TestCollectFilesPassesParsedDocument(t *testing.T) {
 		t.Errorf("Parsed.Purls has %d entries, want 3", len(p.Purls))
 	}
 }
+
+func TestCollectFilesParsesCosignVulnAttestation(t *testing.T) {
+	ctx := context.Background()
+	var certs, vulns int
+	fn := func(_ context.Context, doc guacseam.Parsed) error {
+		for _, p := range doc.Preds {
+			certs += len(p.CertifyVuln)
+			vulns += len(p.VulnEqual)
+		}
+		return nil
+	}
+	out, err := guacseam.Collect(ctx, guacseam.Sources{Files: &guacseam.FilesReceiver{Path: "../../testdata/cosignvuln"}}, fn)
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	if out.Documents != 1 || len(out.Failed) != 0 {
+		t.Fatalf("Documents = %d, Failed = %+v; want 1 and none", out.Documents, out.Failed)
+	}
+	// Two Trivy findings against one Go module, one vendor alias; the empty
+	// OBS subject adds nothing. Before the cosignvuln parser this document
+	// was skipped as an ITE6 statement with no parser.
+	if certs != 2 || vulns != 1 {
+		t.Errorf("CertifyVuln = %d, VulnEqual = %d; want 2 and 1", certs, vulns)
+	}
+}

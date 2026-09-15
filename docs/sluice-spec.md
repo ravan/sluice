@@ -161,6 +161,8 @@ sluice/
   pkg/pipeline/    builds receiver→parser→processor→assembler→decorator→sink from config
   pkg/guacseam/    the ONLY place GUAC behavior is invoked
                    (collector.Collect, process.Process, parser.ParseDocumentTree)
+    cosignvuln/    the one parser sluice adds to GUAC's registry: the cosign
+                   vulnerability attestation wrapping a Trivy report
   pkg/assemble/    Predicates → record stream; ids; the 17 mappings; golden tests
   pkg/validtime/   the guard (one implementation)
   pkg/varve/       /v1/ingest streaming client (421/429/retry, per-attempt token, ?graph=), receipt, Merge
