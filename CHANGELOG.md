@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.0 — 2026-09-16
 
 ### Fixed
 
@@ -27,6 +27,10 @@
   `HasMetadata` takes a package, a source or an artifact, never a
   vulnerability — and its `VulnMetadata` keeps a score without the vector or
   the database behind it. Both facts were in the document and both were lost.
+
+## v0.10.0 — 2026-09-15
+
+### Added
 
 - A parser for the cosign vulnerability attestation
   (`https://cosign.sigstore.dev/attestation/vuln/v1`), whose
