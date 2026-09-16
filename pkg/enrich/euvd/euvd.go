@@ -35,12 +35,17 @@ type Enricher struct {
 }
 
 // item is one EUVD record as the search endpoint returns it.
+//
+// The scores are pointers because EUVD answers `null` for a record it holds no
+// score for, and that is most of them. A float64 would read that null as 0,
+// which is a score EUVD never stated: CVSS 0.0 means "no impact", the opposite
+// of "not scored". Nothing but a pointer tells the two apart.
 type item struct {
 	ID, Description, DatePublished, DateUpdated string
-	BaseScore                                   float64
+	BaseScore                                   *float64
 	BaseScoreVersion, BaseScoreVector           string
 	References, Aliases, Assigner               string
-	EPSS                                        float64 `json:"epss"`
+	EPSS                                        *float64 `json:"epss"`
 }
 
 // page is one search response.
@@ -150,14 +155,18 @@ func claimsFor(subject varve.NodeID, it item, now time.Time) []enrich.Claim {
 	if ok {
 		validFrom = updated
 	}
-	facts := []enrich.FactValue{
-		{Fact: enrich.FactEUVDID, Value: it.ID},
-		{Fact: enrich.FactCVSS, Value: strconv.FormatFloat(it.BaseScore, 'f', -1, 64)},
-		{Fact: enrich.FactCVSSVersion, Value: it.BaseScoreVersion},
-		{Fact: enrich.FactCVSSVector, Value: it.BaseScoreVector},
-		{Fact: enrich.FactEPSS, Value: strconv.FormatFloat(it.EPSS, 'f', -1, 64)},
-		{Fact: enrich.FactDescription, Value: it.Description},
+	facts := []enrich.FactValue{{Fact: enrich.FactEUVDID, Value: it.ID}}
+	if it.BaseScore != nil {
+		facts = append(facts,
+			enrich.FactValue{Fact: enrich.FactCVSS, Value: strconv.FormatFloat(*it.BaseScore, 'f', -1, 64)},
+			enrich.FactValue{Fact: enrich.FactCVSSVersion, Value: it.BaseScoreVersion},
+			enrich.FactValue{Fact: enrich.FactCVSSVector, Value: it.BaseScoreVector},
+		)
 	}
+	if it.EPSS != nil {
+		facts = append(facts, enrich.FactValue{Fact: enrich.FactEPSS, Value: strconv.FormatFloat(*it.EPSS, 'f', -1, 64)})
+	}
+	facts = append(facts, enrich.FactValue{Fact: enrich.FactDescription, Value: it.Description})
 	if published, ok := parseDate(it.DatePublished); ok {
 		facts = append(facts, enrich.FactValue{Fact: enrich.FactPublished, Value: published.Format(time.RFC3339)})
 	}
@@ -172,6 +181,11 @@ func claimsFor(subject varve.NodeID, it item, now time.Time) []enrich.Claim {
 
 	claims := make([]enrich.Claim, 0, len(facts))
 	for _, f := range facts {
+		// A fact EUVD answered blank is not a fact. Claim.Records drops the
+		// empty value prop, which would leave a claim node stating nothing.
+		if f.Value == "" {
+			continue
+		}
 		claims = append(claims, enrich.Claim{
 			Source:    enrich.SourceEUVD,
 			Subject:   subject,

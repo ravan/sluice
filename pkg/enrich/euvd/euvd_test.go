@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,45 @@ func TestClaimsFor(t *testing.T) {
 		}
 		if !c.ValidFrom.Equal(now) {
 			t.Errorf("claim %d valid_from = %s, want %s", i, c.ValidFrom.UTC().Format(time.RFC3339), now.Format(time.RFC3339))
+		}
+	}
+}
+
+// TestClaimsForUnscored holds the line against a null baseScore. Most EUVD
+// records carry no score, and a float64 would read that null as 0.0, which is
+// a real CVSS value meaning "no impact" — the opposite of "not scored". The
+// fixture is the live API's own answer for CVE-2016-1000027.
+func TestClaimsForUnscored(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "euvd", "search-cve-2016-1000027.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var p page
+	if err := json.Unmarshal(b, &p); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	if len(p.Items) != 1 {
+		t.Fatalf("fixture items = %d, want 1", len(p.Items))
+	}
+	it := p.Items[0]
+	if it.BaseScore != nil {
+		t.Fatalf("fixture baseScore = %v, want null: the test needs an unscored record", *it.BaseScore)
+	}
+
+	got := claimsFor(varve.NodeID("vuln:cve/cve-2016-1000027"), it, time.Now().UTC())
+	for _, c := range got {
+		switch c.Fact {
+		case enrich.FactCVSS, enrich.FactCVSSVersion, enrich.FactCVSSVector:
+			t.Errorf("claim %q = %q, want no score claim at all", c.Fact, c.Value)
+		}
+		if c.Value == "" {
+			t.Errorf("claim %q has an empty value", c.Fact)
+		}
+	}
+	// The record still says plenty: an id, a description, an EPSS score.
+	for _, want := range []enrich.Fact{enrich.FactEUVDID, enrich.FactDescription, enrich.FactEPSS} {
+		if !slices.ContainsFunc(got, func(c enrich.Claim) bool { return c.Fact == want }) {
+			t.Errorf("no %q claim, want one", want)
 		}
 	}
 }
