@@ -1,0 +1,192 @@
+{
+ "_type": "https://in-toto.io/Statement/v0.1",
+ "predicateType": "https://cosign.sigstore.dev/attestation/vuln/v1",
+ "subject": [
+  {
+   "name": "pkg:oci/metallb-configmaptocrs?repository_url=dp.apps.rancher.io/containers&arch=amd64",
+   "digest": {}
+  }
+ ],
+ "predicate": {
+  "invocation": {
+   "parameters": null,
+   "uri": "",
+   "event_id": "",
+   "builder.id": ""
+  },
+  "scanner": {
+   "uri": "pkg:github/aquasecurity/trivy@0.74.0",
+   "version": "0.74.0",
+   "db": {
+    "uri": "",
+    "version": ""
+   },
+   "result": {
+    "SchemaVersion": 2,
+    "Trivy": {
+     "Version": "0.74.0"
+    },
+    "ReportID": "01a06e96-8b79-7e4b-a593-5840ddf3f0d8",
+    "CreatedAt": "2026-09-04T22:42:35.001937738Z",
+    "ArtifactID": "sha256:af1decb9f4f01b3eee388d17089135f41d3a981194e6a5a51f7290602d037bf5",
+    "ArtifactName": "metallb-configmaptocrs:0.16.1-24.12",
+    "ArtifactType": "container_image",
+    "Metadata": {
+     "Size": 71943168,
+     "OS": {
+      "Family": "sles",
+      "Name": "15.7"
+     },
+     "ImageID": "sha256:579d1148e8eb1cded6ca8f087ca1cc62443cc0ec8fa4abd2fead23ec3eaed36a",
+     "DiffIDs": [
+      "sha256:0aba3ae066296ada172da2b42ddfc3374264f806ad885679bea9e96cb1dca2c9",
+      "sha256:9fdef763a0bfc36b13a0a0a5c630614b7626720919ccca97dffa2f6c78dc50fb"
+     ],
+     "RepoTags": [
+      "metallb-configmaptocrs:0",
+      "metallb-configmaptocrs:0.16.1",
+      "metallb-configmaptocrs:0.16.1-24.12"
+     ],
+     "Reference": "metallb-configmaptocrs:0.16.1-24.12",
+     "Layers": [
+      {
+       "Size": 26824192,
+       "DiffID": "sha256:0aba3ae066296ada172da2b42ddfc3374264f806ad885679bea9e96cb1dca2c9"
+      },
+      {
+       "Size": 45118976,
+       "DiffID": "sha256:9fdef763a0bfc36b13a0a0a5c630614b7626720919ccca97dffa2f6c78dc50fb"
+      }
+     ]
+    },
+    "Results": [
+     {
+      "Target": "metallb-configmaptocrs:0.16.1-24.12 (sles 15.7)",
+      "Class": "os-pkgs",
+      "Type": "sles"
+     },
+     {
+      "Target": "configmaptocrs",
+      "Class": "lang-pkgs",
+      "Type": "gobinary",
+      "Vulnerabilities": [
+       {
+        "VulnerabilityID": "CVE-2026-46600",
+        "VendorIDs": [
+         "GO-2026-5942"
+        ],
+        "PkgID": "golang.org/x/net@v0.55.0",
+        "PkgName": "golang.org/x/net",
+        "PkgIdentifier": {
+         "PURL": "pkg:golang/golang.org/x/net@v0.55.0",
+         "UID": "a7a81d8f3706d801"
+        },
+        "InstalledVersion": "v0.55.0",
+        "FixedVersion": "0.56.0",
+        "Status": "fixed",
+        "Layer": {
+         "DiffID": "sha256:9fdef763a0bfc36b13a0a0a5c630614b7626720919ccca97dffa2f6c78dc50fb"
+        },
+        "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-46600",
+        "DataSource": {
+         "ID": "govulndb",
+         "Name": "The Go Vulnerability Database",
+         "URL": "https://pkg.go.dev/vuln/"
+        },
+        "Fingerprint": "sha256:fcd74dbb1a96fdd506dc823b48812c41644db5f3e0aa004e4961e0aa49f88c37",
+        "Title": "golang.org/x/net/dns/dnsmessage: golang.org/x/net/dns/dnsmessage: Denial of Service via invalid DNS record parsing",
+        "Description": "Parsing an invalid SVCB or HTTPS RR can panic when the size of a parameter value overflows the message buffer.",
+        "Severity": "HIGH",
+        "CweIDs": [
+         "CWE-125"
+        ],
+        "VendorSeverity": {
+         "azure": 2,
+         "bitnami": 3,
+         "redhat": 3
+        },
+        "CVSS": {
+         "bitnami": {
+          "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "V3Score": 7.5
+         },
+         "redhat": {
+          "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "V3Score": 7.5
+         }
+        },
+        "References": [
+         "https://access.redhat.com/security/cve/CVE-2026-46600",
+         "https://go.dev/cl/786345",
+         "https://go.dev/issue/79795",
+         "https://groups.google.com/g/golang-announce/c/94pEornpRlI",
+         "https://nvd.nist.gov/vuln/detail/CVE-2026-46600",
+         "https://pkg.go.dev/vuln/GO-2026-5942",
+         "https://www.cve.org/CVERecord?id=CVE-2026-46600"
+        ],
+        "PublishedDate": "2026-07-21T20:17:01.213Z",
+        "LastModifiedDate": "2026-08-14T16:16:55.673Z"
+       },
+       {
+        "VulnerabilityID": "CVE-2026-56852",
+        "VendorIDs": [
+         "GO-2026-5970"
+        ],
+        "PkgID": "golang.org/x/text@v0.37.0",
+        "PkgName": "golang.org/x/text",
+        "PkgIdentifier": {
+         "PURL": "pkg:golang/golang.org/x/text@v0.37.0",
+         "UID": "ff8c0606107198c4"
+        },
+        "InstalledVersion": "v0.37.0",
+        "FixedVersion": "0.39.0",
+        "Status": "fixed",
+        "Layer": {
+         "DiffID": "sha256:9fdef763a0bfc36b13a0a0a5c630614b7626720919ccca97dffa2f6c78dc50fb"
+        },
+        "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-56852",
+        "DataSource": {
+         "ID": "govulndb",
+         "Name": "The Go Vulnerability Database",
+         "URL": "https://pkg.go.dev/vuln/"
+        },
+        "Fingerprint": "sha256:ac4ffa08ee8cb0ab9697fae92d84268320d4c37c335bc60d04b687e4a436c5b2",
+        "Title": "golang.org/x/text: golang.org/x/text: Denial of Service via invalid UTF-8 input",
+        "Description": "A norm.Iter can enter an infinite loop when handling input containing invalid UTF-8 bytes.",
+        "Severity": "HIGH",
+        "CweIDs": [
+         "CWE-835"
+        ],
+        "VendorSeverity": {
+         "amazon": 3,
+         "azure": 3,
+         "redhat": 3
+        },
+        "CVSS": {
+         "redhat": {
+          "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+          "V3Score": 7.5
+         }
+        },
+        "References": [
+         "https://access.redhat.com/security/cve/CVE-2026-56852",
+         "https://go.dev/cl/794100",
+         "https://go.dev/issue/80142",
+         "https://nvd.nist.gov/vuln/detail/CVE-2026-56852",
+         "https://pkg.go.dev/vuln/GO-2026-5970",
+         "https://www.cve.org/CVERecord?id=CVE-2026-56852"
+        ],
+        "PublishedDate": "2026-07-21T20:17:02.867Z",
+        "LastModifiedDate": "2026-07-23T18:27:48.877Z"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "metadata": {
+   "scanStartedOn": "2026-09-04T22:42:35.016403708Z",
+   "scanFinishedOn": "2026-09-04T22:42:35.016403708Z"
+  }
+ }
+}

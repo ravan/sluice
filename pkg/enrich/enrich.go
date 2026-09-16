@@ -45,6 +45,13 @@ const (
 	SourcePURL       Source = "purl"       // purl namespace rules; calls no host
 	SourceEcosystems Source = "ecosystems" // packages.ecosyste.ms package lookup
 
+	// SourceScanner is what a scan document states about the vulnerabilities it
+	// found: the description, the scores and the references the scanner copied
+	// out of the databases it consulted. It calls no host either — the document
+	// is the answer — and each claim's Ref names the database the scanner
+	// credited, so the attribution the document carries is not lost.
+	SourceScanner Source = "scanner"
+
 	EU    Jurisdiction = "eu"
 	US    Jurisdiction = "us"
 	Other Jurisdiction = "other"
@@ -54,7 +61,7 @@ const (
 var Sources = []Source{
 	SourceEUVD, SourceVulnerableCode, SourceOSV,
 	SourceClearlyDefined, SourceEOL, SourceDepsDev, SourceFederatedCode,
-	SourceSBOM, SourcePURL, SourceEcosystems,
+	SourceSBOM, SourcePURL, SourceEcosystems, SourceScanner,
 }
 
 // SourceRunner says what produces a source's claims, so the pipeline looks for
@@ -83,6 +90,7 @@ var runners = map[Source]SourceRunner{
 	SourceSBOM:           RunByEnricher,
 	SourcePURL:           RunByEnricher,
 	SourceEcosystems:     RunByEnricher,
+	SourceScanner:        RunByEnricher,
 }
 
 // String names the runner, so a log line or a test failure reads as

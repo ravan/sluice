@@ -2,7 +2,31 @@
 
 ## Unreleased
 
+### Fixed
+
+- `pkg/enrich/euvd` claimed `cvss = "0"` for every record EUVD answers
+  `baseScore: null` for, which is most of them. 0.0 is itself a CVSS score,
+  meaning no impact, so the claim stated the opposite of the truth. The score
+  fields are pointers now, and a record with no score states no score claim.
+  A fact EUVD answered blank is dropped for the same reason: a claim node
+  whose value prop is empty states nothing.
+
 ### Added
+
+- A `scanner` enrichment source, `pkg/enrich/scanner`. It reads what a scan
+  document states about the vulnerabilities it found and returns it as claims:
+  the description, the score, the scoring version, the vector, the published
+  and updated dates, the fixed version and the references. It calls no host —
+  the scanner already asked the databases, and the document carries what they
+  said. Each claim's `Ref` names the database the scanner credited, so two
+  databases that disagree about a score are two claims and a reader can see
+  which said which.
+
+  This is the seam for what a document states and the graph vocabulary has no
+  node for. GUAC has nowhere to put a vulnerability's description — its
+  `HasMetadata` takes a package, a source or an artifact, never a
+  vulnerability — and its `VulnMetadata` keeps a score without the vector or
+  the database behind it. Both facts were in the document and both were lost.
 
 - A parser for the cosign vulnerability attestation
   (`https://cosign.sigstore.dev/attestation/vuln/v1`), whose
